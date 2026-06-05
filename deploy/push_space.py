@@ -18,6 +18,9 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from dotenv import load_dotenv
+from huggingface_hub import HfApi
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SPACE_SRC = REPO_ROOT / "deploy" / "hf_space"
 ASSISTANTS_PKG = REPO_ROOT / "src" / "assistants"
@@ -40,12 +43,12 @@ def main() -> None:
     parser.add_argument("--private", action="store_true", help="create the Space as private")
     args = parser.parse_args()
 
+    # Pick up HF_TOKEN from a local .env file if present.
+    load_dotenv(REPO_ROOT / ".env")
     token = os.getenv("HF_TOKEN")
     if not token:
         raise SystemExit("HF_TOKEN is not set. Create a write token at "
                          "https://huggingface.co/settings/tokens")
-
-    from huggingface_hub import HfApi
 
     api = HfApi(token=token)
     api.create_repo(

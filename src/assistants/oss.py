@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import os
 
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 from .base import Assistant, Message
 
 DEFAULT_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
@@ -30,8 +33,6 @@ def _select_device() -> str:
     reliable and representative of the free Hugging Face Space tier we deploy
     to. Set OSS_DEVICE=mps to override on machines where it works.
     """
-    import torch
-
     if torch.cuda.is_available():
         return "cuda"
     return "cpu"
@@ -60,9 +61,6 @@ class OSSAssistant(Assistant):
         """Lazy-load weights so importing the module stays cheap."""
         if self._model is not None:
             return
-        import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-
         dtype = torch.float32 if self.device == "cpu" else torch.float16
         self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         self._model = AutoModelForCausalLM.from_pretrained(
@@ -72,8 +70,6 @@ class OSSAssistant(Assistant):
 
     def _generate(self, messages: list[Message]) -> str:
         self._ensure_loaded()
-        import torch
-
         prompt = self._tokenizer.apply_chat_template(
             [m.as_dict() for m in messages],
             tokenize=False,

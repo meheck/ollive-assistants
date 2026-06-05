@@ -8,7 +8,7 @@ sdk_version: 6.16.0
 app_file: app.py
 pinned: false
 license: apache-2.0
-short_description: Open-source personal assistant (Qwen2.5-0.5B-Instruct) on CPU
+short_description: Open-source assistant (Qwen2.5-0.5B) on CPU
 ---
 
 # Ollive — Open-Source Assistant
