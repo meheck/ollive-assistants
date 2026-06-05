@@ -16,9 +16,14 @@ import sys
 from pathlib import Path
 
 # Make the shared package importable whether running from the repo (src/ on
-# path) or from the Space (assistants/ vendored beside this file).
+# path) or from the Space (assistants/ vendored beside this file). On the Space
+# app.py sits at /app/app.py, so the repo-relative src/ path may not exist --
+# guard against that.
 sys.path.insert(0, str(Path(__file__).parent))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+except IndexError:
+    pass
 
 import gradio as gr  # noqa: E402
 
