@@ -1,0 +1,7 @@
+# Pinned to the versions the assistant was built and tested against so the
+# public Space reproduces local behavior. CPU-only torch (the free Space tier
+# has no GPU; Qwen2.5-0.5B runs comfortably on CPU).
+torch==2.12.0
+transformers==5.10.2
+accelerate==1.13.0
+gradio==6.16.0

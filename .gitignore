@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets / local config
+.env
+.env.local
+
+# Eval + run artifacts (regenerated; traces/results not checked in)
+results/*.jsonl
+results/*.json
+results/*.png
+
+# OS / editor
+.DS_Store
