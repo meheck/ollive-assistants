@@ -12,6 +12,8 @@ import traceback
 
 import gradio as gr
 
+from assistants.tools import WorldState
+
 
 def coerce_text(content) -> str:
     """Flatten a Gradio message's content into plain text.
@@ -77,10 +79,33 @@ def run_turn(assistant, message: str, history) -> str:
 
 
 def build_demo(assistant, title: str, description: str, examples: list[str]):
-    """Build a ChatInterface around a single shared assistant instance."""
+    """Build a ChatInterface around a single shared assistant instance.
+
+    When the assistant has tools, each browser session gets its OWN sandbox
+    (`WorldState`) via a per-session `gr.State`, so one visitor's fake
+    emails/transfers never appear in another's. The shared model is reused; only
+    the cheap world state is per-session. `concurrency_limit=1` serializes turns
+    so swapping `assistant.world`/memory per request can't race.
+    """
+    if assistant.tools is None:
+        return gr.ChatInterface(
+            fn=lambda message, history: run_turn(assistant, message, history),
+            title=title, description=description, examples=examples,
+        )
+
+    world_state = gr.State()
+
+    def _respond(message, history, world):
+        if world is None:
+            world = WorldState()
+        assistant.world = world  # use THIS session's sandbox for tool calls
+        reply = run_turn(assistant, message, history)
+        return reply, world  # persist the (mutated) sandbox back into the session
+
     return gr.ChatInterface(
-        fn=lambda message, history: run_turn(assistant, message, history),
-        title=title,
-        description=description,
-        examples=examples,
+        fn=_respond,
+        additional_inputs=[world_state],
+        additional_outputs=[world_state],
+        title=title, description=description,
+        concurrency_limit=1,
     )

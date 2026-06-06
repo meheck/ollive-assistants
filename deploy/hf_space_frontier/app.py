@@ -22,12 +22,15 @@ except IndexError:
 import gradio as gr  # noqa: E402
 
 from assistants.frontier import DEFAULT_SYSTEM_PROMPT, FrontierAssistant  # noqa: E402
+from assistants.tools import WorldState, default_registry  # noqa: E402
 from shared_chat import ingest_history  # noqa: E402
 
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # Default assistant uses the Space's free-tier key (GEMINI_API_KEY Secret).
-_default_assistant = FrontierAssistant(model_name=MODEL_NAME, system_prompt=DEFAULT_SYSTEM_PROMPT)
+_default_assistant = FrontierAssistant(
+    model_name=MODEL_NAME, system_prompt=DEFAULT_SYSTEM_PROMPT, tools=default_registry()
+)
 
 
 def _mask(key: str) -> str:
@@ -49,40 +52,46 @@ def _friendly_error(exc: Exception) -> str:
     return f"⚠️ Sorry, something went wrong ({type(exc).__name__}). Please try again."
 
 
-def _turn(assistant, message: str, history) -> str:
-    """One turn that raises on failure (so the caller can handle it)."""
+def _turn(assistant, message: str, history, world) -> str:
+    """One turn against `world` (this session's sandbox). Raises on failure."""
+    assistant.world = world
     assistant.reset()
     ingest_history(assistant, history)
     return assistant.chat(message)
 
 
-def _respond(message: str, history, user_key: str):
-    # Try the user's own key first (a fresh client per request -- nothing is
-    # cached or retained between turns). On any failure fall back to the demo
-    # key so the chat stays usable; if that also fails, show a clean message.
+def _respond(message: str, history, user_key: str, world):
+    # Each session gets its own sandbox (`world`); tools mutate it in place.
+    if world is None:
+        world = WorldState()
     user_key = (user_key or "").strip()
+
+    # Try the user's own key first (fresh client per request, nothing cached).
+    # On any failure fall back to the demo key; if that also fails, clean message.
     if user_key:
         try:
             reply = _turn(
                 FrontierAssistant(model_name=MODEL_NAME,
                                   system_prompt=DEFAULT_SYSTEM_PROMPT,
-                                  api_key=user_key),
-                message, history,
+                                  api_key=user_key, tools=default_registry()),
+                message, history, world,
             )
             print(f"[frontier] served with USER key ({_mask(user_key)})", file=sys.stderr, flush=True)
-            return reply
+            return reply, world
         except Exception as exc:  # noqa: BLE001
             print(f"[frontier] USER key ({_mask(user_key)}) failed: {exc}; "
                   "falling back to demo key", file=sys.stderr, flush=True)
 
     try:
-        reply = _turn(_default_assistant, message, history)
+        reply = _turn(_default_assistant, message, history, world)
         print("[frontier] served with DEMO key", file=sys.stderr, flush=True)
-        return reply
+        return reply, world
     except Exception as exc:  # noqa: BLE001
         print(f"[frontier] DEMO key failed: {exc}", file=sys.stderr, flush=True)
-        return _friendly_error(exc)
+        return _friendly_error(exc), world
 
+
+_world_state = gr.State()
 
 demo = gr.ChatInterface(
     fn=_respond,
@@ -91,13 +100,17 @@ demo = gr.ChatInterface(
             label="Your Gemini API key (optional)",
             placeholder="Leave blank to use the demo's free-tier key",
             type="password",
-        )
+        ),
+        _world_state,
     ],
+    additional_outputs=[_world_state],
+    concurrency_limit=1,
     title="Ollive — Frontier Assistant (Gemini 2.5 Flash)",
     description=(
-        "A personal assistant backed by a hosted frontier model (Google "
-        "Gemini). Multi-turn with short-term conversational memory. Uses a "
-        "shared free-tier key by default; paste your own key to use your quota."
+        "A personal assistant backed by a hosted frontier model (Google Gemini). "
+        "Multi-turn with short-term memory and tools (calculator, web search, "
+        "sandboxed email/transfer/delete). Each session has its own sandbox. "
+        "Uses a shared free-tier key by default; paste your own to use your quota."
     ),
 )
 

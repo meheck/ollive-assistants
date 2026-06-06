@@ -2,3 +2,4 @@
 # the Gemini SDK. Pinned to the versions used in development.
 gradio==6.16.0
 google-genai==2.8.0
+ddgs==9.14.4

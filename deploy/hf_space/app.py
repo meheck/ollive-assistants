@@ -20,20 +20,25 @@ except IndexError:
     pass
 
 from assistants.oss import DEFAULT_MODEL, DEFAULT_SYSTEM_PROMPT, OSSAssistant  # noqa: E402
+from assistants.tools import default_registry  # noqa: E402
 from shared_chat import build_demo  # noqa: E402
 
 MODEL_NAME = os.getenv("OSS_MODEL", DEFAULT_MODEL)
 
 # One shared model instance per process (loading is expensive); per-session
-# history is replayed into it each turn by shared_chat.
-_assistant = OSSAssistant(model_name=MODEL_NAME, system_prompt=DEFAULT_SYSTEM_PROMPT)
+# history is replayed into it each turn, and each session gets its own tool
+# sandbox (WorldState) via shared_chat.
+_assistant = OSSAssistant(
+    model_name=MODEL_NAME, system_prompt=DEFAULT_SYSTEM_PROMPT, tools=default_registry()
+)
 
 demo = build_demo(
     _assistant,
     title="Ollive — Open-Source Assistant (Qwen2.5-1.5B-Instruct)",
     description=(
-        "A lightweight personal assistant running an open-source model on CPU. "
-        "Multi-turn with short-term conversational memory."
+        "A personal assistant running an open-source model on CPU. Multi-turn "
+        "with short-term memory and tools (calculator, web search, and sandboxed "
+        "email/transfer/delete actions). Each session has its own sandbox."
     ),
     examples=[
         "What can you help me with?",
