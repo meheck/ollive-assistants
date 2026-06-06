@@ -58,15 +58,16 @@ class OSSAssistant(Assistant):
         self,
         model_name: str = DEFAULT_MODEL,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-        max_messages: int = 16,
+        max_tokens: int = 6000,
         max_new_tokens: int = 512,
         temperature: float = 0.7,
         device: str | None = None,
         tools=None,
         world=None,
+        long_term_memory=None,
     ) -> None:
-        super().__init__(system_prompt=system_prompt, max_messages=max_messages,
-                         tools=tools, world=world)
+        super().__init__(system_prompt=system_prompt, max_tokens=max_tokens,
+                         tools=tools, world=world, long_term_memory=long_term_memory)
         self.model_id = model_name.split("/")[-1].lower()
         self.model_name = model_name
         self.max_new_tokens = max_new_tokens

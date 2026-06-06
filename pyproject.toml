@@ -7,10 +7,13 @@ requires-python = ">=3.12"
 dependencies = [
     "accelerate>=1.13.0",
     "anthropic>=0.106.0",
+    "chromadb>=1.5.9",
     "ddgs>=9.14.4",
     "google-genai>=2.8.0",
     "gradio>=6.16.0",
+    "mem0ai>=2.0.4",
     "python-dotenv>=1.2.2",
+    "sentence-transformers>=5.5.1",
     "torch>=2.12.0",
     "transformers>=5.10.2",
 ]

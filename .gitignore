@@ -18,5 +18,8 @@ results/*.jsonl
 results/*.json
 results/*.png
 
+# Cross-session memory store (local vector DB, regenerated)
+memory_store/
+
 # OS / editor
 .DS_Store

@@ -39,18 +39,28 @@ class Message:
         return {"role": self.role, "content": self.content}
 
 
+def _estimate_tokens(text: str) -> int:
+    """Cheap, model-agnostic token estimate (~4 chars/token + per-message overhead).
+
+    Good enough for windowing decisions without importing any tokenizer into the
+    shared base; both models have large context windows so exact counts aren't
+    needed here.
+    """
+    return len(text) // 4 + 4
+
+
 @dataclass
 class ShortTermMemory:
     """In-session conversational memory: a sliding window over recent turns.
 
-    The system prompt is stored separately and always retained; only the
-    user/assistant exchange is windowed. We window by number of *messages*
-    (default 16 == 8 turns) which is simple, deterministic, and model-agnostic
-    -- a token-budget window is a later refinement (noted in the README).
+    We window by an approximate *token budget* (like a real chatbot) rather than
+    a fixed message count: keep the most recent turns that fit in `max_tokens`,
+    dropping the oldest when over budget. The system prompt is stored separately
+    and always retained; only the user/assistant exchange is windowed.
     """
 
     system_prompt: str
-    max_messages: int = 16
+    max_tokens: int = 6000
     _history: list[Message] = field(default_factory=list)
 
     def add_user(self, content: str) -> None:
@@ -62,8 +72,11 @@ class ShortTermMemory:
         self._truncate()
 
     def _truncate(self) -> None:
-        if len(self._history) > self.max_messages:
-            self._history = self._history[-self.max_messages :]
+        # Drop oldest messages until the history fits the token budget. Always
+        # keep at least the most recent message.
+        total = sum(_estimate_tokens(m.content) for m in self._history)
+        while len(self._history) > 1 and total > self.max_tokens:
+            total -= _estimate_tokens(self._history.pop(0).content)
 
     def render(self) -> list[Message]:
         """Full message list (system + windowed history) for a model call."""
@@ -90,28 +103,53 @@ class Assistant(ABC):
     def __init__(
         self,
         system_prompt: str,
-        max_messages: int = 16,
+        max_tokens: int = 6000,
         tools: ToolRegistry | None = None,
         world: WorldState | None = None,
+        long_term_memory=None,
     ) -> None:
-        self.memory = ShortTermMemory(system_prompt=system_prompt, max_messages=max_messages)
+        self.memory = ShortTermMemory(system_prompt=system_prompt, max_tokens=max_tokens)
         #: Optional tool registry. When set, backends run a native
         #: function-calling loop against `self.world`.
         self.tools = tools
         #: Sandbox the tools act on (auto-created when tools are enabled).
         self.world = world if world is not None else (WorldState() if tools else None)
-        #: Tool calls made during the most recent turn (for traces/eval).
+        #: Optional cross-session memory (duck-typed: .retrieve(query)/.store(msg)).
+        #: Kept generic so base.py never imports the Mem0 dependency.
+        self.ltm = long_term_memory
+        #: Tool calls / recalled memories from the most recent turn (for traces).
         self.last_tool_calls: list[dict] = []
+        self.last_recalled: list[str] = []
 
     @abstractmethod
     def _generate(self, messages: list[Message]) -> str:
         """Produce a reply given the full (system + history) message list."""
 
     def chat(self, user_input: str) -> str:
-        """Handle one user turn: append, generate, remember, return reply."""
+        """Handle one user turn: recall, generate, remember, return reply.
+
+        If cross-session memory is attached, relevant memories are recalled and
+        prepended to the current user message (for THIS call only -- the stored
+        history keeps the original), then the turn is persisted afterward.
+        """
         self.memory.add_user(user_input)
-        reply = self._generate(self.memory.render())
+        messages = self.memory.render()
+
+        self.last_recalled = []
+        if self.ltm is not None:
+            recalled = self.ltm.retrieve(user_input)
+            if recalled:
+                self.last_recalled = recalled
+                note = "Things you remember about the user:\n" + "\n".join(
+                    f"- {r}" for r in recalled
+                )
+                last = messages[-1]
+                messages = messages[:-1] + [Message(last.role, f"{note}\n\n{last.content}")]
+
+        reply = self._generate(messages)
         self.memory.add_assistant(reply)
+        if self.ltm is not None:
+            self.ltm.store(user_input)
         return reply
 
     def reset(self) -> None:
