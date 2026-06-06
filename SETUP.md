@@ -70,12 +70,19 @@ Requires `HF_TOKEN` (write) in `.env`.
 # OSS assistant (public)
 uv run python deploy/push_space.py --space-id <user>/ollive-oss-assistant
 
-# Frontier assistant (private, Gemini key pushed as a Space Secret)
-uv run python deploy/push_space.py \
+# Frontier assistant (public; the key set as a Space Secret is what visitors
+# use by default). Pass the demo key via env so THAT key is stored, not your
+# personal .env key:
+GEMINI_API_KEY='<free-tier-demo-key>' uv run python deploy/push_space.py \
   --space-id <user>/ollive-frontier-assistant \
   --source hf_space_frontier --vendor frontier.py \
-  --private --secret GEMINI_API_KEY
+  --secret GEMINI_API_KEY
+
+# (add --private to keep a Space owner-only)
 ```
+
+The frontier Space also has an optional "your API key" field so a visitor can
+use their own quota instead of the shared demo key.
 
 The deploy script vendors the shared code into the Space, so each Space is
 self-contained.
@@ -83,7 +90,7 @@ self-contained.
 ## Live demos
 
 - OSS (public): https://huggingface.co/spaces/meheck/ollive-oss-assistant
-- Frontier (private — owner access): https://huggingface.co/spaces/meheck/ollive-frontier-assistant
+- Frontier (public): https://huggingface.co/spaces/meheck/ollive-frontier-assistant
 
 ## Troubleshooting
 

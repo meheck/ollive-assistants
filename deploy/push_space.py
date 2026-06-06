@@ -81,6 +81,9 @@ def main() -> None:
         private=args.private,
         exist_ok=True,
     )
+    # create_repo doesn't change an EXISTING repo's visibility -- enforce it so
+    # re-deploying can flip a Space between private and public.
+    api.update_repo_settings(repo_id=args.space_id, repo_type="space", private=args.private)
 
     # Push any secrets BEFORE the app starts so the first boot has them.
     for name in args.secret:

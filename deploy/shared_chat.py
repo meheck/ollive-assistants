@@ -58,27 +58,28 @@ def ingest_history(assistant, history) -> None:
             add(getattr(turn, "role", None), getattr(turn, "content", None))
 
 
-def build_demo(assistant, title: str, description: str, examples: list[str]):
-    """Build a ChatInterface around a single shared assistant instance.
+def run_turn(assistant, message: str, history) -> str:
+    """Handle one chat turn against a (shared) assistant.
 
-    The assistant is reset and rebuilt from THIS session's history each turn,
-    so concurrent users never share context even though they share one loaded
-    model. Errors are logged (visible in Space logs) and surfaced as a message
-    rather than crashing the turn.
+    Resets the assistant and rebuilds it from THIS session's history, so
+    concurrent users never share context even though they share one instance.
+    Errors are logged (visible in Space logs) and surfaced as a message rather
+    than crashing the turn.
     """
+    assistant.reset()
+    try:
+        ingest_history(assistant, history)
+        return assistant.chat(message)
+    except Exception as exc:  # noqa: BLE001 -- keep the Space responsive
+        print(f"[run_turn] error; history repr: {repr(history)[:500]}", file=sys.stderr)
+        traceback.print_exc()
+        return f"[assistant error: {type(exc).__name__}: {exc}]"
 
-    def _respond(message: str, history):
-        assistant.reset()
-        try:
-            ingest_history(assistant, history)
-            return assistant.chat(message)
-        except Exception as exc:  # noqa: BLE001 -- keep the Space responsive
-            print(f"[_respond] error; history repr: {repr(history)[:500]}", file=sys.stderr)
-            traceback.print_exc()
-            return f"[assistant error: {type(exc).__name__}: {exc}]"
 
+def build_demo(assistant, title: str, description: str, examples: list[str]):
+    """Build a ChatInterface around a single shared assistant instance."""
     return gr.ChatInterface(
-        fn=_respond,
+        fn=lambda message, history: run_turn(assistant, message, history),
         title=title,
         description=description,
         examples=examples,

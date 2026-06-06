@@ -79,7 +79,12 @@ The same `app.py` runs locally and on the Space.
 
 Deployed Spaces:
 - OSS (public): https://huggingface.co/spaces/meheck/ollive-oss-assistant
-- Frontier (private): https://huggingface.co/spaces/meheck/ollive-frontier-assistant
+- Frontier (public): https://huggingface.co/spaces/meheck/ollive-frontier-assistant
+
+The frontier Space ships with a dedicated **free-tier** Gemini key (a Secret),
+so visitors can try it with zero setup, and exposes an **optional "your API
+key" field** — if a user pastes their own key it is used (per-key assistant
+cache); a bad/exhausted key falls back to the demo key so chat stays usable.
 
 ## Key decisions & tradeoffs
 
@@ -90,7 +95,7 @@ Deployed Spaces:
 | OSS backend topology | local weights now; remote Space available | local gives deterministic, seed-controlled runs for evals |
 | Frontier model | Gemini 2.5 Flash | fast/cheap, clean cost/latency contrast vs OSS |
 | Eval judge | Gemini 2.5 Pro (planned) | no working Anthropic key; stronger model judges weaker; within-family bias documented as a limitation |
-| Frontier Space visibility | private | uses the owner's Gemini key; avoids public quota abuse |
+| Frontier Space visibility | public, dedicated free-tier key | zero-setup demo; free-tier can't bill; optional user-key field for own quota |
 
 ## Status
 
