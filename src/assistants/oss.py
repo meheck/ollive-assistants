@@ -13,15 +13,12 @@ import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from .base import Assistant, Message
+from .base import DEFAULT_SYSTEM_PROMPT, Assistant, Message
+
+# Re-exported for callers that import it from here (e.g. the Space app).
+__all__ = ["OSSAssistant", "DEFAULT_MODEL", "DEFAULT_SYSTEM_PROMPT"]
 
 DEFAULT_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
-
-DEFAULT_SYSTEM_PROMPT = (
-    "You are a helpful, concise personal assistant. "
-    "Answer clearly. If you are unsure or do not know something, say so plainly "
-    "rather than guessing."
-)
 
 
 def _select_device() -> str:

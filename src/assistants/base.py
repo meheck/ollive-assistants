@@ -15,6 +15,14 @@ from typing import Literal
 
 Role = Literal["system", "user", "assistant"]
 
+#: Shared assistant persona. Both backends use this identical prompt so the
+#: OSS-vs-frontier comparison isolates the model, not the prompt.
+DEFAULT_SYSTEM_PROMPT = (
+    "You are a helpful, concise personal assistant. "
+    "Answer clearly. If you are unsure or do not know something, say so plainly "
+    "rather than guessing."
+)
+
 
 @dataclass
 class Message:
