@@ -34,9 +34,9 @@ results/               Raw run outputs (gitignored)
 Everything is built on one contract in `base.py`:
 
 - **`Message`** — `{role, content}` with roles `system | user | assistant`.
-- **`ShortTermMemory`** — in-session memory: a sliding window over the last N
-  messages (default 16). The system prompt is stored separately and always
-  retained; only the user/assistant exchange is windowed.
+- **`ShortTermMemory`** — in-session memory: a sliding window by approximate
+  **token budget** (default 6000), keeping the most recent turns that fit. The
+  system prompt is stored separately and always retained.
 - **`Assistant` (ABC)** — handles memory bookkeeping in `chat()`; subclasses
   implement only `_generate(messages) -> str`. This guarantees both backends
   get an identical context-construction policy, so the comparison isolates the
@@ -85,6 +85,23 @@ Tools are split by intent (`tools.py`):
 `web_search` has a fixture hook so evals can inject attacker-controlled
 "results" — the untrusted-input → consequential-sink (indirect prompt
 injection) attack chain — deterministically.
+
+## Memory
+
+Two complementary layers:
+
+- **Short-term (in-session)** — `ShortTermMemory`, token-budget window above.
+- **Long-term (cross-session)** — `LongTermMemory` (`long_term_memory.py`) over
+  Mem0 with `infer=False`: turns are stored and recalled by **embedding
+  similarity** (local HuggingFace embedder + persistent Chroma), so there is no
+  extra LLM inference. `base.chat()` recalls relevant memories (prepended to the
+  current turn only; stored history stays original) and persists the turn after.
+
+Properties, all verified: per-`user_id` scoping (memories never cross users),
+**deterministic PII scrubbing before storage** (emails/SSNs/cards/phones →
+`[REDACTED_*]`), telemetry disabled, fully local. `base.py` never imports Mem0
+(memory is duck-typed in), so the deployed Spaces stay dependency-light;
+long-term memory is enabled in the local app / eval, not the public demos.
 
 ## Deployment
 
@@ -179,16 +196,14 @@ later is a one-line change if distilled-fact memory is ever wanted.
 Done: both assistants + shared interface; OSS (Qwen2.5-1.5B) and frontier
 (Gemini 2.5 Flash) deployed publicly; cost+latency benchmark.
 
-Done: native function calling on both backends with sandboxed consequential
-tools + per-session sandbox; both demos redeployed (1.5B + tools).
+Done: native function calling + sandboxed tools + per-session sandbox (both
+demos redeployed, 1.5B + tools); token-budget short-term memory; cross-session
+memory (Mem0, infer=False, PII-scrubbed, local-only).
 
-Pending (build order: memory → observability → eval):
-- Short-term memory: upgrade to token-budget windowing (current fixed 16-message
-  window is too small for the models' context).
-- Cross-session memory (Mem0, embedded Chroma), enabled local-only.
+Pending (build order: observability → eval):
 - Observability: version-pinned JSONL trace per turn (spans, tokens, tools,
   retrieved memories).
 - Eval framework: required dimensions (hallucination / bias / content safety)
   **plus** memory and tool behaviors, with per-test-case isolation for
   reproducibility; dimension-specific judges.
-- Streamlit demo UI; README + 1-page report.
+- Streamlit demo UI (local app with tools + memory); README + 1-page report.
