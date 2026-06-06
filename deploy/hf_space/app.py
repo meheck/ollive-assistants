@@ -36,22 +36,76 @@ MODEL_NAME = os.getenv("OSS_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
 _assistant = OSSAssistant(model_name=MODEL_NAME, system_prompt=DEFAULT_SYSTEM_PROMPT)
 
 
-def _respond(message: str, history: list[dict]):
+def _coerce_text(content) -> str:
+    """Flatten Gradio message content into plain text.
+
+    Gradio 6 may store `content` as a string OR as a list of content parts
+    (e.g. [{"type": "text", "text": "..."}]). Qwen's chat template concatenates
+    content as a string, so a raw list crashes it -- we flatten to text here.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for p in content:
+            if isinstance(p, str):
+                parts.append(p)
+            elif isinstance(p, dict):
+                parts.append(p.get("text") or p.get("content") or "")
+        return " ".join(s for s in parts if s)
+    return ""
+
+
+def _add(role: str, content) -> None:
+    """Append one prior turn to the shared assistant's memory, if usable."""
+    text = _coerce_text(content)
+    if not text:
+        return
+    if role == "user":
+        _assistant.memory.add_user(text)
+    elif role == "assistant":
+        _assistant.memory.add_assistant(text)
+
+
+def _ingest_history(history) -> None:
+    """Replay per-session history into memory, tolerant of Gradio's formats.
+
+    Across Gradio versions `history` can arrive as:
+      * messages format -- list of {"role", "content"} dicts
+      * tuples format    -- list of [user_msg, bot_msg] pairs
+      * objects          -- ChatMessage-like with .role/.content
+    We handle all three so a format change never breaks multi-turn chat.
+    """
+    for turn in history or []:
+        if isinstance(turn, dict):
+            _add(turn.get("role"), turn.get("content"))
+        elif isinstance(turn, (list, tuple)) and len(turn) == 2:
+            user_msg, bot_msg = turn
+            _add("user", user_msg)
+            _add("assistant", bot_msg)
+        else:  # ChatMessage-like object
+            _add(getattr(turn, "role", None), getattr(turn, "content", None))
+
+
+def _respond(message: str, history):
     """Gradio ChatInterface callback.
 
-    Gradio passes per-session `history` (a list of {role, content} dicts in the
-    default messages format). We rebuild the assistant's short-term memory from
-    it so concurrent users on the Space don't share conversational context even
-    though they share one loaded model.
+    The shared `_assistant` is reset each turn and rebuilt from THIS session's
+    `history`, so concurrent users on the Space never share context even though
+    they share one loaded model. Errors are logged (visible in Space logs) and
+    surfaced as a message instead of crashing the turn.
     """
     _assistant.reset()
-    for turn in history:
-        role, content = turn["role"], turn["content"]
-        if role == "user":
-            _assistant.memory.add_user(content)
-        elif role == "assistant":
-            _assistant.memory.add_assistant(content)
-    return _assistant.chat(message)
+    try:
+        _ingest_history(history)
+        return _assistant.chat(message)
+    except Exception as exc:  # noqa: BLE001 -- keep the Space responsive
+        import sys
+        import traceback
+
+        print(f"[_respond] error; history repr: {repr(history)[:500]}", file=sys.stderr)
+        traceback.print_exc()
+        return f"[assistant error: {type(exc).__name__}: {exc}]"
 
 
 demo = gr.ChatInterface(
