@@ -96,6 +96,7 @@ cache); a bad/exhausted key falls back to the demo key so chat stays usable.
 | Frontier model | Gemini 2.5 Flash | fast/cheap, clean cost/latency contrast vs OSS |
 | Eval judge | Gemini 2.5 Pro (planned) | no working Anthropic key; stronger model judges weaker; within-family bias documented as a limitation |
 | Frontier Space visibility | public, dedicated free-tier key | zero-setup demo; free-tier can't bill; optional user-key field for own quota |
+| Cross-session memory | Mem0 self-hosted, **`infer=False`**, local embedder | see "Why memory makes no extra inference calls" below |
 
 ### Why no Docker (intentional)
 
@@ -117,6 +118,31 @@ Not using Docker is a deliberate choice, not an omission:
 Net: the grader experience is `uv sync` → `.env` → run, with a live public
 demo as the zero-setup fallback. Docker would add image weight and build time
 for no reproducibility we don't already have.
+
+### Why memory makes no extra inference calls (intentional)
+
+Mem0 has two modes; we deliberately use neither of the costly defaults:
+
+- **Mem0 open-source, default (`infer=True`)** would make an *extra LLM call per
+  stored turn* to extract/condense facts — billed to our Gemini key. Rejected:
+  we don't want memory to add inference cost or latency.
+- **Mem0 Platform (hosted)** would run extraction on Mem0's servers (free tier),
+  but adds an external account dependency and, worse, sends conversation data
+  off the machine — unacceptable for a PII-sensitive context.
+
+We use **Mem0 self-hosted with `infer=False`**: turns are stored directly and
+recalled by **embedding similarity** using a **local `sentence-transformers`
+model** (CPU, no API call). Consequences, all intentional:
+
+- **Zero extra LLM inference** for memory — no Gemini calls, no added latency.
+- **Fully local** — nothing leaves the machine; embedded Chroma + local embedder.
+- **No external account** — pure pip deps; the grader story stays `uv sync`.
+- **PII handled deterministically** — since no LLM is in the loop, a regex/rule
+  scrubber redacts PII *before* storage (predictable, not model-dependent).
+
+Tradeoff: we store raw turns (recalled by similarity) rather than LLM-distilled
+facts. That's good enough for cross-session recall, and flipping to `infer=True`
+later is a one-line change if distilled-fact memory is ever wanted.
 
 ## Status
 
