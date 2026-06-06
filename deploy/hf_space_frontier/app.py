@@ -22,40 +22,12 @@ except IndexError:
 import gradio as gr  # noqa: E402
 
 from assistants.frontier import DEFAULT_SYSTEM_PROMPT, FrontierAssistant  # noqa: E402
-from shared_chat import ingest_history, run_turn  # noqa: E402
+from shared_chat import ingest_history  # noqa: E402
 
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # Default assistant uses the Space's free-tier key (GEMINI_API_KEY Secret).
 _default_assistant = FrontierAssistant(model_name=MODEL_NAME, system_prompt=DEFAULT_SYSTEM_PROMPT)
-
-# Cache one assistant per user-supplied key so we don't rebuild a client every
-# turn. Each turn still resets+replays history, so sharing an instance is safe.
-_user_assistants: dict[str, FrontierAssistant] = {}
-
-
-def _assistant_for(user_key: str):
-    """Return the assistant for this turn: the user's key if given, else default."""
-    user_key = (user_key or "").strip()
-    if not user_key:
-        return _default_assistant
-    if user_key not in _user_assistants:
-        try:
-            _user_assistants[user_key] = FrontierAssistant(
-                model_name=MODEL_NAME,
-                system_prompt=DEFAULT_SYSTEM_PROMPT,
-                api_key=user_key,
-            )
-        except Exception:  # noqa: BLE001 -- bad key -> fall back to the demo key
-            return _default_assistant
-    return _user_assistants[user_key]
-
-
-def _try_turn(assistant, message: str, history) -> str:
-    """One turn that raises on failure (so the caller can fall back)."""
-    assistant.reset()
-    ingest_history(assistant, history)
-    return assistant.chat(message)
 
 
 def _mask(key: str) -> str:
@@ -63,21 +35,53 @@ def _mask(key: str) -> str:
     return f"...{key[-4:]}" if len(key) >= 4 else "(short)"
 
 
+def _friendly_error(exc: Exception) -> str:
+    """Turn a raw API exception into a short, actionable chat message."""
+    msg = str(exc)
+    if "RESOURCE_EXHAUSTED" in msg or "429" in msg:
+        return (
+            "⚠️ The shared demo key has hit its rate limit (Gemini free tier). "
+            "Paste your own Gemini API key in the box above to keep chatting, "
+            "or try again in a minute."
+        )
+    if "API key not valid" in msg or "API_KEY_INVALID" in msg:
+        return "⚠️ That API key isn't valid. Clear the box to use the demo key."
+    return f"⚠️ Sorry, something went wrong ({type(exc).__name__}). Please try again."
+
+
+def _turn(assistant, message: str, history) -> str:
+    """One turn that raises on failure (so the caller can handle it)."""
+    assistant.reset()
+    ingest_history(assistant, history)
+    return assistant.chat(message)
+
+
 def _respond(message: str, history, user_key: str):
-    # If the user supplied a key, try it; on any failure (invalid key, quota)
-    # fall back to the demo's free-tier key so the chat stays usable. Each turn
-    # logs which key actually served it (masked), so it's verifiable.
+    # Try the user's own key first (a fresh client per request -- nothing is
+    # cached or retained between turns). On any failure fall back to the demo
+    # key so the chat stays usable; if that also fails, show a clean message.
     user_key = (user_key or "").strip()
     if user_key:
         try:
-            reply = _try_turn(_assistant_for(user_key), message, history)
+            reply = _turn(
+                FrontierAssistant(model_name=MODEL_NAME,
+                                  system_prompt=DEFAULT_SYSTEM_PROMPT,
+                                  api_key=user_key),
+                message, history,
+            )
             print(f"[frontier] served with USER key ({_mask(user_key)})", file=sys.stderr, flush=True)
             return reply
         except Exception as exc:  # noqa: BLE001
             print(f"[frontier] USER key ({_mask(user_key)}) failed: {exc}; "
                   "falling back to demo key", file=sys.stderr, flush=True)
-    print("[frontier] served with DEMO key", file=sys.stderr, flush=True)
-    return run_turn(_default_assistant, message, history)
+
+    try:
+        reply = _turn(_default_assistant, message, history)
+        print("[frontier] served with DEMO key", file=sys.stderr, flush=True)
+        return reply
+    except Exception as exc:  # noqa: BLE001
+        print(f"[frontier] DEMO key failed: {exc}", file=sys.stderr, flush=True)
+        return _friendly_error(exc)
 
 
 demo = gr.ChatInterface(
