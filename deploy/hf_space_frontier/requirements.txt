@@ -1,0 +1,4 @@
+# Frontier Space is lightweight -- no torch/transformers. Just the chat UI and
+# the Gemini SDK. Pinned to the versions used in development.
+gradio==6.16.0
+google-genai==2.8.0
