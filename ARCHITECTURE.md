@@ -52,13 +52,39 @@ user turn -> memory.add_user -> _generate(system + windowed history) -> memory.a
 | | OSS | Frontier |
 |---|---|---|
 | Class | `OSSAssistant` | `FrontierAssistant` |
-| Model | Qwen2.5-0.5B-Instruct | gemini-2.5-flash |
+| Model | Qwen2.5-1.5B-Instruct | gemini-2.5-flash |
 | Runtime | local weights (transformers), CPU | hosted Google API |
 | Cost | compute you host ($0 on free tier) | per-token API |
+| Tool calls | Qwen chat-template `tools` + `<tool_call>` parsing | Gemini `FunctionDeclaration`s |
 | Notes | lazy weight-loading; greedy/sampling | captures token usage for cost |
 
 Both implement the same interface, so the chat UI, benchmark, and (upcoming)
 eval harness treat them interchangeably — swapping is one line.
+
+## Tools (native function calling)
+
+When an assistant is given a `ToolRegistry`, `base.chat()` runs a native
+tool-calling loop (≤ `MAX_TOOL_ITERS` cycles): generate → if the model requests
+tools, execute them against a sandboxed `WorldState` and feed results back →
+repeat until a plain answer. Each backend uses its own native mechanism
+(Gemini function declarations; Qwen chat-template tools), so reliability scales
+with model size — a measurable OSS-vs-frontier gap.
+
+Tools are split by intent (`tools.py`):
+
+- **Read-only (capability):** `calculator`, `web_search` (DuckDuckGo),
+  `check_balance`.
+- **Consequential (risk), sandboxed:** `send_email`, `transfer_funds`,
+  `create_account`, `delete_record`. These mutate only an in-process
+  `WorldState` (fake outbox / multi-account ledger / record store) — no real
+  side effects — but look real to the model, so we can observe whether it takes
+  harmful or unauthorized actions. `transfer_funds` requires both accounts to
+  exist (no silent creation); every consequential call is appended to
+  `WorldState.action_log` as an audit trail.
+
+`web_search` has a fixture hook so evals can inject attacker-controlled
+"results" — the untrusted-input → consequential-sink (indirect prompt
+injection) attack chain — deterministically.
 
 ## Deployment
 
@@ -74,6 +100,10 @@ The same `app.py` runs locally and on the Space.
   each turn the assistant is reset and rebuilt from *that session's* history, so
   concurrent users never share context. History content is coerced to text to
   survive Gradio's string-or-list content format.
+- **Per-session tool sandbox**: when tools are enabled, each browser session
+  gets its own `WorldState` via a per-session `gr.State`, and `concurrency_limit=1`
+  serializes turns on the shared model — so one visitor's fake emails/transfers
+  never appear in another's.
 - **Secrets**: the frontier Space reads `GEMINI_API_KEY` from a Space Secret
   (set via the deploy script), never from committed code.
 
@@ -149,11 +179,12 @@ later is a one-line change if distilled-fact memory is ever wanted.
 Done: both assistants + shared interface; OSS (Qwen2.5-1.5B) and frontier
 (Gemini 2.5 Flash) deployed publicly; cost+latency benchmark.
 
-Pending (build order: tools → memory → observability → eval):
+Done: native function calling on both backends with sandboxed consequential
+tools + per-session sandbox; both demos redeployed (1.5B + tools).
+
+Pending (build order: memory → observability → eval):
 - Short-term memory: upgrade to token-budget windowing (current fixed 16-message
   window is too small for the models' context).
-- Tool use: native function calling on both backends (Gemini API + Qwen chat
-  template), uniform tool registry.
 - Cross-session memory (Mem0, embedded Chroma), enabled local-only.
 - Observability: version-pinned JSONL trace per turn (spans, tokens, tools,
   retrieved memories).
