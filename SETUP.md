@@ -50,14 +50,27 @@ GEMINI_API_KEY=...        # any Gemini key (your own, or the demo key)
 > Space, a local process has no key baked in. `HF_TOKEN` is only needed for
 > mode C below.
 
-### 3. Run the assistants
-Both are Gradio apps; open the printed local URL.
+### 3a. Local assistant CLI (tools + cross-session memory)
+The fullest local experience — tools and persistent cross-session memory wired
+together:
 ```bash
-# Open-source assistant (Qwen2.5-0.5B on CPU; first run downloads ~1 GB; no key)
-PYTHONPATH=src uv run python deploy/hf_space/app.py
+uv run python chat.py                    # OSS model (Qwen2.5-1.5B; no key needed)
+uv run python chat.py --model frontier   # Gemini (needs GEMINI_API_KEY in .env)
+```
+Options: `--user <id>` (memory scope; defaults to `$OLLIVE_USER_ID`/OS user),
+`--memory-dir <path>`, `--no-tools`, `--no-memory`. In-chat commands: `/world`
+(inspect the tool sandbox), `/memories`, `/reset`, `/help`, `/exit`. Run it
+again later with the same `--user` and it remembers earlier sessions.
+
+### 3b. Chat UIs (same apps as the deployed Spaces)
+Gradio apps with tools + per-session sandbox (no long-term memory — that's
+local/CLI only). Open the printed local URL.
+```bash
+# Open-source assistant (Qwen2.5-1.5B on CPU; first run downloads ~3 GB; no key)
+uv run python deploy/hf_space/app.py
 
 # Frontier assistant (Gemini; needs GEMINI_API_KEY in .env)
-PYTHONPATH=src uv run python deploy/hf_space_frontier/app.py
+uv run python deploy/hf_space_frontier/app.py
 ```
 Each serves on http://localhost:7860 (set `PORT` to change).
 
