@@ -90,18 +90,48 @@ cache); a bad/exhausted key falls back to the demo key so chat stays usable.
 
 | Decision | Choice | Why |
 |---|---|---|
-| Reproducibility | `uv` + committed lockfile, **no Docker** | torch makes Docker images huge; uv pins deps+Python and the public Space already containerizes the OSS side |
+| Reproducibility | `uv` + committed lockfile, **intentionally no Docker** | see "Why no Docker" below |
 | OSS device | **CPU** (MPS disabled) | Qwen2.5 trips an Apple Metal assertion on MPS; CPU is reliable and matches the free Space tier |
 | OSS backend topology | local weights now; remote Space available | local gives deterministic, seed-controlled runs for evals |
 | Frontier model | Gemini 2.5 Flash | fast/cheap, clean cost/latency contrast vs OSS |
 | Eval judge | Gemini 2.5 Pro (planned) | no working Anthropic key; stronger model judges weaker; within-family bias documented as a limitation |
 | Frontier Space visibility | public, dedicated free-tier key | zero-setup demo; free-tier can't bill; optional user-key field for own quota |
 
+### Why no Docker (intentional)
+
+Not using Docker is a deliberate choice, not an omission:
+
+- **`uv` already gives reproducible installs.** A committed `uv.lock` pins every
+  transitive dependency *and* the Python version; `uv sync` reconstructs the
+  exact environment in seconds. That covers the "it runs on their machine"
+  requirement without a 2–4 GB torch-based image.
+- **No services to stand up.** The only stateful component is the vector DB
+  (Chroma), and it runs **embedded / in-process** — it persists to a local
+  folder, auto-created on first run. There is nothing to orchestrate, so the
+  usual reason to reach for Docker/compose (multi-service wiring) doesn't apply.
+- **The public Space already containerizes the OSS side.** Hugging Face Spaces
+  builds and runs the OSS assistant in its own container, so the "works in a
+  clean environment" guarantee exists where it matters most — and graders can
+  click it with zero setup.
+
+Net: the grader experience is `uv sync` → `.env` → run, with a live public
+demo as the zero-setup fallback. Docker would add image weight and build time
+for no reproducibility we don't already have.
+
 ## Status
 
-Done: both assistants + shared interface; OSS deployed (public) and frontier
-deployed (private); cost+latency benchmark.
+Done: both assistants + shared interface; OSS (Qwen2.5-1.5B) and frontier
+(Gemini 2.5 Flash) deployed publicly; cost+latency benchmark.
 
-Pending: eval framework (hallucination / bias / content safety with
-dimension-specific judges), observability/tracing, tool use, cross-session
-memory (Mem0), Streamlit demo UI, README + 1-page report.
+Pending (build order: tools → memory → observability → eval):
+- Short-term memory: upgrade to token-budget windowing (current fixed 16-message
+  window is too small for the models' context).
+- Tool use: native function calling on both backends (Gemini API + Qwen chat
+  template), uniform tool registry.
+- Cross-session memory (Mem0, embedded Chroma), enabled local-only.
+- Observability: version-pinned JSONL trace per turn (spans, tokens, tools,
+  retrieved memories).
+- Eval framework: required dimensions (hallucination / bias / content safety)
+  **plus** memory and tool behaviors, with per-test-case isolation for
+  reproducibility; dimension-specific judges.
+- Streamlit demo UI; README + 1-page report.
