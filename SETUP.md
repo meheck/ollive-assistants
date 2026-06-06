@@ -1,101 +1,106 @@
 # Setup & running
 
-How to run everything locally and (re)deploy the Spaces.
+There are three ways to use this project. Most people only need the first two.
 
-## Prerequisites
+| Mode | Setup | Gemini key? |
+|---|---|---|
+| **A. Just try it** | none — click the live links | no |
+| **B. Run the code locally** | `uv sync` + a key in `.env` | yes (any key works) |
+| **C. Host your own copy** | deploy to HF Spaces | your own |
 
-- **Python 3.12** and **[uv](https://docs.astral.sh/uv/)** (manages the venv,
-  deps, and Python version)
-- A **Google Gemini API key** (free at https://aistudio.google.com/apikey) —
-  needed for the frontier assistant
-- *(Deploy only)* a **Hugging Face account** + a **write token**
-  (https://huggingface.co/settings/tokens)
+---
 
-The OSS model (Qwen2.5-0.5B-Instruct) is public and downloads automatically on
-first run — no HF token needed just to run it.
+## A. Just try it (no setup)
 
-## 1. Install
+Open the public Spaces in a browser:
 
+- OSS assistant: https://huggingface.co/spaces/meheck/ollive-oss-assistant
+- Frontier assistant: https://huggingface.co/spaces/meheck/ollive-frontier-assistant
+
+The frontier Space already includes a free-tier Gemini key, so it just works.
+It also has an optional "your API key" field if you'd rather use your own quota
+— still no deploy or local setup needed.
+
+---
+
+## B. Run the code locally
+
+For running the assistants/eval harness on your machine.
+
+### Prerequisites
+- **Python 3.12** and **[uv](https://docs.astral.sh/uv/)**
+- A **Google Gemini API key** — needed only for the *frontier* assistant and
+  the eval judge. Get one free at https://aistudio.google.com/apikey. (The OSS
+  assistant needs no key.)
+
+### 1. Install
 ```bash
 uv sync          # creates .venv and installs the locked dependencies
 ```
 
-## 2. Configure secrets
-
+### 2. Configure
 ```bash
 cp .env.example .env
 ```
-
 Edit `.env`:
-
 ```
-GEMINI_API_KEY=...        # required for the frontier assistant
-HF_TOKEN=hf_...           # only needed to deploy to Hugging Face Spaces
+GEMINI_API_KEY=...        # any Gemini key (your own, or the demo key)
 ```
+> The frontier code reads this from the environment because, unlike the live
+> Space, a local process has no key baked in. `HF_TOKEN` is only needed for
+> mode C below.
 
-> The `ANTHROPIC_API_KEY` that may already exist in your shell is Claude Code's
-> own token and is **not** a usable API key — ignore it.
-
-## 3. Run the assistants locally
-
-Both are Gradio apps (open the printed local URL in a browser).
-
+### 3. Run the assistants
+Both are Gradio apps; open the printed local URL.
 ```bash
-# Open-source assistant (Qwen2.5-0.5B on CPU; first run downloads ~1 GB)
+# Open-source assistant (Qwen2.5-0.5B on CPU; first run downloads ~1 GB; no key)
 PYTHONPATH=src uv run python deploy/hf_space/app.py
 
 # Frontier assistant (Gemini; needs GEMINI_API_KEY in .env)
 PYTHONPATH=src uv run python deploy/hf_space_frontier/app.py
 ```
+Each serves on http://localhost:7860 (set `PORT` to change).
 
-Each serves on http://localhost:7860 by default (set `PORT` to change).
-
-## 4. Cost + latency benchmark
-
+### 4. Cost + latency benchmark
 ```bash
-# Local only
-uv run python eval/bench_latency.py
-
-# Also benchmark the live public Space (end-to-end round-trip)
-uv run python eval/bench_latency.py --space meheck/ollive-oss-assistant
+uv run python eval/bench_latency.py                                  # local only
+uv run python eval/bench_latency.py --space meheck/ollive-oss-assistant   # + live Space
 ```
-
 Writes `results/latency_raw.json` and `report/cost_latency.md`.
 
-## 5. Deploy to Hugging Face Spaces (optional)
+---
 
-Requires `HF_TOKEN` (write) in `.env`.
+## C. Host your own copy (optional / maintainer)
+
+You do **not** need this to run or evaluate the project — it only publishes your
+own Spaces. Requires a Hugging Face account and a **write** `HF_TOKEN` in `.env`.
 
 ```bash
 # OSS assistant (public)
 uv run python deploy/push_space.py --space-id <user>/ollive-oss-assistant
 
-# Frontier assistant (public; the key set as a Space Secret is what visitors
-# use by default). Pass the demo key via env so THAT key is stored, not your
-# personal .env key:
-GEMINI_API_KEY='<free-tier-demo-key>' uv run python deploy/push_space.py \
+# Frontier assistant (public)
+uv run python deploy/push_space.py \
   --space-id <user>/ollive-frontier-assistant \
   --source hf_space_frontier --vendor frontier.py \
   --secret GEMINI_API_KEY
-
-# (add --private to keep a Space owner-only)
 ```
 
-The frontier Space also has an optional "your API key" field so a visitor can
-use their own quota instead of the shared demo key.
+Notes:
+- `--secret GEMINI_API_KEY` stores the key currently in your environment as the
+  Space's Secret — that key is what visitors use by default. To publish a
+  *demo* key rather than your personal one, prefix the command with it:
+  `GEMINI_API_KEY='<demo-key>' uv run python deploy/push_space.py ...`
+- Add `--private` to make a Space owner-only.
+- The script vendors the shared code into each Space, so Spaces are
+  self-contained and never drift from the repo.
 
-The deploy script vendors the shared code into the Space, so each Space is
-self-contained.
-
-## Live demos
-
-- OSS (public): https://huggingface.co/spaces/meheck/ollive-oss-assistant
-- Frontier (public): https://huggingface.co/spaces/meheck/ollive-frontier-assistant
+---
 
 ## Troubleshooting
 
 - **`GEMINI_API_KEY` not set** — the frontier app raises on startup; check `.env`.
-- **Slow first OSS response** — model weights load lazily on the first message
+- **Slow first OSS response** — weights load lazily on the first message
   (~4 s locally; longer on a cold Space).
 - **MPS / Metal error on Apple Silicon** — the OSS model runs on CPU by design;
   override with `OSS_DEVICE=mps` only if your setup supports it.
