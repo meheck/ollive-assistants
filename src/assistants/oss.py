@@ -8,12 +8,30 @@ than a raw text completer.
 
 from __future__ import annotations
 
+import json
 import os
+import re
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from .base import DEFAULT_SYSTEM_PROMPT, Assistant, Message
+from .base import DEFAULT_SYSTEM_PROMPT, MAX_TOOL_ITERS, Assistant, Message
+
+# Qwen emits tool calls as <tool_call>{"name": ..., "arguments": {...}}</tool_call>.
+_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+
+
+def _parse_qwen_tool_calls(text: str) -> list[dict]:
+    """Extract tool calls from a Qwen generation. Returns [] if none/invalid."""
+    calls = []
+    for match in _TOOL_CALL_RE.findall(text):
+        try:
+            obj = json.loads(match)
+            if isinstance(obj, dict) and "name" in obj:
+                calls.append(obj)
+        except json.JSONDecodeError:
+            continue
+    return calls
 
 # Re-exported for callers that import it from here (e.g. the Space app).
 __all__ = ["OSSAssistant", "DEFAULT_MODEL", "DEFAULT_SYSTEM_PROMPT"]
@@ -44,8 +62,11 @@ class OSSAssistant(Assistant):
         max_new_tokens: int = 512,
         temperature: float = 0.7,
         device: str | None = None,
+        tools=None,
+        world=None,
     ) -> None:
-        super().__init__(system_prompt=system_prompt, max_messages=max_messages)
+        super().__init__(system_prompt=system_prompt, max_messages=max_messages,
+                         tools=tools, world=world)
         self.model_id = model_name.split("/")[-1].lower()
         self.model_name = model_name
         self.max_new_tokens = max_new_tokens
@@ -65,12 +86,10 @@ class OSSAssistant(Assistant):
         ).to(self.device)
         self._model.eval()
 
-    def _generate(self, messages: list[Message]) -> str:
-        self._ensure_loaded()
+    def _generate_once(self, msg_dicts: list[dict], tools_arg) -> str:
+        """Render the chat template (optionally with tools) and generate once."""
         prompt = self._tokenizer.apply_chat_template(
-            [m.as_dict() for m in messages],
-            tokenize=False,
-            add_generation_prompt=True,
+            msg_dicts, tools=tools_arg, tokenize=False, add_generation_prompt=True
         )
         inputs = self._tokenizer(prompt, return_tensors="pt").to(self.device)
 
@@ -87,3 +106,38 @@ class OSSAssistant(Assistant):
         # Only decode the newly generated tokens, not the echoed prompt.
         new_tokens = output[0][inputs["input_ids"].shape[1] :]
         return self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+
+    def _generate(self, messages: list[Message]) -> str:
+        self._ensure_loaded()
+        self.last_tool_calls = []
+        msg_dicts = [m.as_dict() for m in messages]
+        tools_arg = (
+            [{"type": "function", "function": s} for s in self.tools.schemas()]
+            if self.tools is not None
+            else None
+        )
+
+        # Native tool loop: generate -> parse <tool_call> blocks -> execute ->
+        # feed results back as `tool` messages -> repeat until a plain answer.
+        for _ in range(MAX_TOOL_ITERS):
+            text = self._generate_once(msg_dicts, tools_arg)
+            calls = _parse_qwen_tool_calls(text) if self.tools is not None else []
+            if not calls:
+                return text.strip()
+
+            msg_dicts.append({
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"type": "function",
+                     "function": {"name": c["name"], "arguments": c.get("arguments", {})}}
+                    for c in calls
+                ],
+            })
+            for c in calls:
+                args = c.get("arguments", {}) or {}
+                result = self.tools.execute(c["name"], args, self.world)
+                self.last_tool_calls.append({"name": c["name"], "args": args, "result": result})
+                msg_dicts.append({"role": "tool", "name": c["name"], "content": result})
+
+        return "(stopped after too many tool calls)"

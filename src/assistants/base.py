@@ -13,6 +13,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Literal
 
+from .tools import ToolRegistry, WorldState
+
+#: Max generate -> tool-call -> generate cycles within a single turn.
+MAX_TOOL_ITERS = 5
+
 Role = Literal["system", "user", "assistant"]
 
 #: Shared assistant persona. Both backends use this identical prompt so the
@@ -82,8 +87,21 @@ class Assistant(ABC):
     #: Stable identifier used in traces/eval reports (e.g. "qwen2.5-0.5b").
     model_id: str
 
-    def __init__(self, system_prompt: str, max_messages: int = 16) -> None:
+    def __init__(
+        self,
+        system_prompt: str,
+        max_messages: int = 16,
+        tools: ToolRegistry | None = None,
+        world: WorldState | None = None,
+    ) -> None:
         self.memory = ShortTermMemory(system_prompt=system_prompt, max_messages=max_messages)
+        #: Optional tool registry. When set, backends run a native
+        #: function-calling loop against `self.world`.
+        self.tools = tools
+        #: Sandbox the tools act on (auto-created when tools are enabled).
+        self.world = world if world is not None else (WorldState() if tools else None)
+        #: Tool calls made during the most recent turn (for traces/eval).
+        self.last_tool_calls: list[dict] = []
 
     @abstractmethod
     def _generate(self, messages: list[Message]) -> str:
