@@ -58,15 +58,25 @@ def _try_turn(assistant, message: str, history) -> str:
     return assistant.chat(message)
 
 
+def _mask(key: str) -> str:
+    """Last 4 chars only -- enough to identify a key in logs without leaking it."""
+    return f"...{key[-4:]}" if len(key) >= 4 else "(short)"
+
+
 def _respond(message: str, history, user_key: str):
     # If the user supplied a key, try it; on any failure (invalid key, quota)
-    # fall back to the demo's free-tier key so the chat stays usable.
+    # fall back to the demo's free-tier key so the chat stays usable. Each turn
+    # logs which key actually served it (masked), so it's verifiable.
     user_key = (user_key or "").strip()
     if user_key:
         try:
-            return _try_turn(_assistant_for(user_key), message, history)
+            reply = _try_turn(_assistant_for(user_key), message, history)
+            print(f"[frontier] served with USER key ({_mask(user_key)})", file=sys.stderr, flush=True)
+            return reply
         except Exception as exc:  # noqa: BLE001
-            print(f"[frontier] user key failed, falling back to demo key: {exc}", file=sys.stderr)
+            print(f"[frontier] USER key ({_mask(user_key)}) failed: {exc}; "
+                  "falling back to demo key", file=sys.stderr, flush=True)
+    print("[frontier] served with DEMO key", file=sys.stderr, flush=True)
     return run_turn(_default_assistant, message, history)
 
 

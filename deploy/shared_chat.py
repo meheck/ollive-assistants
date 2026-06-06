@@ -71,7 +71,7 @@ def run_turn(assistant, message: str, history) -> str:
         ingest_history(assistant, history)
         return assistant.chat(message)
     except Exception as exc:  # noqa: BLE001 -- keep the Space responsive
-        print(f"[run_turn] error; history repr: {repr(history)[:500]}", file=sys.stderr)
+        print(f"[run_turn] error; history repr: {repr(history)[:500]}", file=sys.stderr, flush=True)
         traceback.print_exc()
         return f"[assistant error: {type(exc).__name__}: {exc}]"
 
