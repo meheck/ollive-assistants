@@ -1,7 +1,7 @@
 [project]
 name = "ollive-assistants"
 version = "0.1.0"
-description = "Add your description here"
+description = "OSS vs frontier personal assistants with tools, memory, and evals"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -17,3 +17,9 @@ dependencies = [
     "torch>=2.12.0",
     "transformers>=5.10.2",
 ]
+
+# Not a distributable package -- it's an app project. Code lives in src/ and is
+# put on the path by the entry scripts (chat.py / eval / deploy apps), which
+# keeps local runs dependency-light and avoids editable-install quirks.
+[tool.uv]
+package = false
