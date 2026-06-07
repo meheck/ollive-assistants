@@ -17,11 +17,17 @@ deployed Spaces, so `base.py` stays free of the Mem0 dependency.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 
 # Disable Mem0's outbound telemetry (privacy: nothing should phone home).
 os.environ.setdefault("MEM0_TELEMETRY", "False")
+
+# We use Mem0 with infer=False + embedding similarity only -- not its optional
+# spaCy-based graph/entity features. Quiet the resulting "spaCy not installed"
+# warnings so the CLI output stays clean (the feature is genuinely unused).
+logging.getLogger("mem0").setLevel(logging.ERROR)
 
 DEFAULT_EMBEDDER = "sentence-transformers/all-MiniLM-L6-v2"
 
