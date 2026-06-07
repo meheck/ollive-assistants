@@ -8,6 +8,7 @@ model runs (Google's API vs local CPU) and its capability.
 from __future__ import annotations
 
 import os
+import time
 
 from google import genai
 from google.genai import types
@@ -21,6 +22,21 @@ DEFAULT_MODEL = "gemini-2.5-flash"
 
 # Gemini uses "model" for the assistant role; our internal role is "assistant".
 _ROLE_MAP = {"user": "user", "assistant": "model"}
+
+
+def _retry(call, attempts: int = 3, backoff: float = 2.0):
+    """Call `call()`, retrying transient API/network errors with linear backoff.
+    Each attempt is already time-bounded by the client's 120s http timeout, so a
+    stalled connection becomes a retryable error instead of an infinite hang."""
+    last = None
+    for i in range(attempts):
+        try:
+            return call()
+        except Exception as exc:  # noqa: BLE001 -- transient API/network errors
+            last = exc
+            if i < attempts - 1:
+                time.sleep(backoff * (i + 1))
+    raise last
 
 
 class FrontierAssistant(Assistant):
@@ -49,7 +65,11 @@ class FrontierAssistant(Assistant):
             raise ValueError(
                 "No Gemini API key. Set GEMINI_API_KEY (or GOOGLE_API_KEY) in .env."
             )
-        self._client = genai.Client(api_key=key)
+        # Bound every request: with no timeout a stalled socket hangs forever
+        # (it once blocked an eval run for an hour). 120s comfortably allows a slow
+        # response while turning a genuine stall into a retryable error.
+        self._client = genai.Client(
+            api_key=key, http_options=types.HttpOptions(timeout=120_000))
 
     def _build_config(self):
         kwargs = dict(
@@ -97,9 +117,9 @@ class FrontierAssistant(Assistant):
         # execute them against the sandbox and feed results back -> repeat.
         for _ in range(MAX_TOOL_ITERS):
             self.last_iterations += 1
-            response = self._client.models.generate_content(
+            response = _retry(lambda: self._client.models.generate_content(
                 model=self.model_name, contents=contents, config=config
-            )
+            ))
             self._record_usage(response)
             parts = response.candidates[0].content.parts or []
             calls = [p.function_call for p in parts if getattr(p, "function_call", None)]

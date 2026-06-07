@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 
 from .types import RunResult, Scenario, Verdict
 
@@ -92,19 +93,31 @@ class JudgeHarness:
     def _client_lazy(self):
         if self._client is None:
             from google import genai
+            from google.genai import types as gtypes
+            # 120s timeout so a stalled judge call (2.5 Pro can be slow) fails and
+            # retries instead of hanging the whole run forever.
             self._client = genai.Client(
-                api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+                api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"),
+                http_options=gtypes.HttpOptions(timeout=120_000))
         return self._client
 
     def _call(self, prompt: str) -> dict:
         from google.genai import types as gtypes
 
-        resp = self._client_lazy().models.generate_content(
-            model=self.model, contents=prompt,
-            config=gtypes.GenerateContentConfig(
-                temperature=0.0, response_mime_type="application/json"),
-        )
-        return _parse_json(resp.text or "")
+        client = self._client_lazy()
+        config = gtypes.GenerateContentConfig(
+            temperature=0.0, response_mime_type="application/json")
+        last = None
+        for i in range(3):
+            try:
+                resp = client.models.generate_content(
+                    model=self.model, contents=prompt, config=config)
+                return _parse_json(resp.text or "")
+            except Exception as exc:  # noqa: BLE001 -- transient API/network errors
+                last = exc
+                if i < 2:
+                    time.sleep(2.0 * (i + 1))
+        raise last
 
 
 def _parse_json(raw: str) -> dict:
