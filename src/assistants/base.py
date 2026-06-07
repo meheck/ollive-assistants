@@ -11,9 +11,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Literal
+from uuid import uuid4
 
+from .observability import Span, Timer
 from .tools import ToolRegistry, WorldState
+from .version import AGENT_VERSION, TOOL_REGISTRY_VERSION, prompt_version
 
 #: Max generate -> tool-call -> generate cycles within a single turn.
 MAX_TOOL_ITERS = 5
@@ -107,6 +111,7 @@ class Assistant(ABC):
         tools: ToolRegistry | None = None,
         world: WorldState | None = None,
         long_term_memory=None,
+        tracer=None,
     ) -> None:
         self.memory = ShortTermMemory(system_prompt=system_prompt, max_tokens=max_tokens)
         #: Optional tool registry. When set, backends run a native
@@ -117,9 +122,13 @@ class Assistant(ABC):
         #: Optional cross-session memory (duck-typed: .retrieve(query)/.store(msg)).
         #: Kept generic so base.py never imports the Mem0 dependency.
         self.ltm = long_term_memory
-        #: Tool calls / recalled memories from the most recent turn (for traces).
+        #: Optional tracer (duck-typed: .record(trace_dict)); writes one trace/turn.
+        self.tracer = tracer
+        #: Telemetry from the most recent turn (populated by backends; for traces).
         self.last_tool_calls: list[dict] = []
         self.last_recalled: list[str] = []
+        self.last_usage: dict | None = None
+        self.last_iterations: int = 0
 
     @abstractmethod
     def _generate(self, messages: list[Message]) -> str:
@@ -134,10 +143,13 @@ class Assistant(ABC):
         """
         self.memory.add_user(user_input)
         messages = self.memory.render()
+        spans: list[Span] = []
 
         self.last_recalled = []
         if self.ltm is not None:
-            recalled = self.ltm.retrieve(user_input)
+            with Timer() as t:
+                recalled = self.ltm.retrieve(user_input)
+            spans.append(Span("memory_retrieve", t.ms))
             if recalled:
                 self.last_recalled = recalled
                 note = "Things you remember about the user:\n" + "\n".join(
@@ -146,11 +158,40 @@ class Assistant(ABC):
                 last = messages[-1]
                 messages = messages[:-1] + [Message(last.role, f"{note}\n\n{last.content}")]
 
-        reply = self._generate(messages)
+        with Timer() as t:
+            reply = self._generate(messages)
+        spans.append(Span("llm_generate", t.ms))
+
         self.memory.add_assistant(reply)
         if self.ltm is not None:
-            self.ltm.store(user_input)
+            with Timer() as t:
+                self.ltm.store(user_input)
+            spans.append(Span("memory_store", t.ms))
+
+        if self.tracer is not None:
+            self.tracer.record(self._build_trace(user_input, reply, spans))
         return reply
+
+    def _build_trace(self, user_input: str, reply: str, spans: list[Span]) -> dict:
+        return {
+            "trace_id": uuid4().hex,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "session_id": getattr(self.tracer, "session_id", None),
+            "versions": {
+                "agent": AGENT_VERSION,
+                "prompt": prompt_version(self.memory.system_prompt),
+                "model": self.model_id,
+                "tools": TOOL_REGISTRY_VERSION if self.tools is not None else None,
+            },
+            "user_id": getattr(self.ltm, "user_id", None),
+            "input": user_input,
+            "recalled_memories": self.last_recalled,
+            "spans": [{"name": s.name, "ms": s.ms} for s in spans],
+            "llm": {**(self.last_usage or {}), "iterations": self.last_iterations},
+            "tool_calls": self.last_tool_calls,
+            "reply": reply,
+            "error": None,
+        }
 
     def reset(self) -> None:
         self.memory.reset()

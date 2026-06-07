@@ -64,6 +64,8 @@ def main() -> None:
     parser.add_argument("--memory-dir", default="memory_store")
     parser.add_argument("--no-tools", action="store_true")
     parser.add_argument("--no-memory", action="store_true")
+    parser.add_argument("--trace", action="store_true",
+                        help="write a version-pinned JSON trace per turn to results/traces/")
     args = parser.parse_args()
 
     user_id = _resolve_user(args.user)
@@ -76,18 +78,25 @@ def main() -> None:
         from .long_term_memory import LongTermMemory
         ltm = LongTermMemory(persist_dir=args.memory_dir, user_id=user_id)
 
+    tracer = None
+    if args.trace:
+        from .observability import Tracer
+        tracer = Tracer()
+
     if args.model == "frontier":
         from .frontier import FrontierAssistant
-        assistant = FrontierAssistant(tools=tools, long_term_memory=ltm)
+        assistant = FrontierAssistant(tools=tools, long_term_memory=ltm, tracer=tracer)
     else:
         from .oss import OSSAssistant
         print("Loading the open-source model (first run downloads weights)...")
-        assistant = OSSAssistant(tools=tools, long_term_memory=ltm)
+        assistant = OSSAssistant(tools=tools, long_term_memory=ltm, tracer=tracer)
 
     print(BANNER.format(
         model=assistant.model_id, user=user_id,
         tools="on" if tools else "off", memory="on" if ltm else "off",
     ))
+    if tracer is not None:
+        print(f"  traces:  {tracer.path}\n")
 
     while True:
         try:

@@ -13,6 +13,7 @@ from google import genai
 from google.genai import types
 
 from .base import DEFAULT_SYSTEM_PROMPT, MAX_TOOL_ITERS, Assistant, Message
+from .observability import Timer
 
 __all__ = ["FrontierAssistant", "DEFAULT_MODEL", "DEFAULT_SYSTEM_PROMPT"]
 
@@ -34,9 +35,11 @@ class FrontierAssistant(Assistant):
         tools=None,
         world=None,
         long_term_memory=None,
+        tracer=None,
     ) -> None:
         super().__init__(system_prompt=system_prompt, max_tokens=max_tokens,
-                         tools=tools, world=world, long_term_memory=long_term_memory)
+                         tools=tools, world=world, long_term_memory=long_term_memory,
+                         tracer=tracer)
         self.model_id = model_name
         self.model_name = model_name
         self.max_new_tokens = max_new_tokens
@@ -47,8 +50,6 @@ class FrontierAssistant(Assistant):
                 "No Gemini API key. Set GEMINI_API_KEY (or GOOGLE_API_KEY) in .env."
             )
         self._client = genai.Client(api_key=key)
-        #: Token usage from the most recent call (for cost/observability later).
-        self.last_usage: dict[str, int] | None = None
 
     def _build_config(self):
         kwargs = dict(
@@ -67,12 +68,11 @@ class FrontierAssistant(Assistant):
         return types.GenerateContentConfig(**kwargs)
 
     def _record_usage(self, response) -> None:
+        # Accumulate across the tool loop (a turn may make several model calls).
         usage = getattr(response, "usage_metadata", None)
         if usage is not None:
-            self.last_usage = {
-                "input_tokens": getattr(usage, "prompt_token_count", 0) or 0,
-                "output_tokens": getattr(usage, "candidates_token_count", 0) or 0,
-            }
+            self.last_usage["input_tokens"] += getattr(usage, "prompt_token_count", 0) or 0
+            self.last_usage["output_tokens"] += getattr(usage, "candidates_token_count", 0) or 0
 
     def _generate(self, messages: list[Message]) -> str:
         # Split the system message out (Gemini takes it separately) and convert
@@ -84,10 +84,13 @@ class FrontierAssistant(Assistant):
         ]
         config = self._build_config()
         self.last_tool_calls = []
+        self.last_iterations = 0
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
 
         # Native function-calling loop: generate -> if the model requests tools,
         # execute them against the sandbox and feed results back -> repeat.
         for _ in range(MAX_TOOL_ITERS):
+            self.last_iterations += 1
             response = self._client.models.generate_content(
                 model=self.model_name, contents=contents, config=config
             )
@@ -99,9 +102,11 @@ class FrontierAssistant(Assistant):
                 contents.append(response.candidates[0].content)  # model's call turn
                 for fc in calls:
                     args = dict(fc.args) if fc.args else {}
-                    result = self.tools.execute(fc.name, args, self.world)
+                    with Timer() as tt:
+                        result = self.tools.execute(fc.name, args, self.world)
                     self.last_tool_calls.append(
-                        {"name": fc.name, "args": args, "result": result}
+                        {"name": fc.name, "args": args, "result": result,
+                         "ms": tt.ms, "consequential": self.tools.is_consequential(fc.name)}
                     )
                     contents.append(
                         types.Content(

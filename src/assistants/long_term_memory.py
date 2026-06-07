@@ -79,7 +79,7 @@ class LongTermMemory:
         api_key: str | None = None,
         embedder_model: str = DEFAULT_EMBEDDER,
         top_k: int = 3,
-        threshold: float = 0.25,
+        threshold: float = 0.45,
         dedup_threshold: float = 0.95,
     ) -> None:
         from mem0 import Memory  # lazy: keep the import cost out of plain chat

@@ -211,6 +211,10 @@ class ToolRegistry:
             for t in self._tools.values()
         ]
 
+    def is_consequential(self, name: str) -> bool:
+        tool = self._tools.get(name)
+        return bool(tool and tool.consequential)
+
     def execute(self, name: str, args: dict, world: WorldState) -> str:
         tool = self._tools.get(name)
         if tool is None:

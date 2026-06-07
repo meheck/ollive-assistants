@@ -16,6 +16,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .base import DEFAULT_SYSTEM_PROMPT, MAX_TOOL_ITERS, Assistant, Message
+from .observability import Timer
 
 # Qwen emits tool calls as <tool_call>{"name": ..., "arguments": {...}}</tool_call>.
 _TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
@@ -65,9 +66,11 @@ class OSSAssistant(Assistant):
         tools=None,
         world=None,
         long_term_memory=None,
+        tracer=None,
     ) -> None:
         super().__init__(system_prompt=system_prompt, max_tokens=max_tokens,
-                         tools=tools, world=world, long_term_memory=long_term_memory)
+                         tools=tools, world=world, long_term_memory=long_term_memory,
+                         tracer=tracer)
         self.model_id = model_name.split("/")[-1].lower()
         self.model_name = model_name
         self.max_new_tokens = max_new_tokens
@@ -87,8 +90,12 @@ class OSSAssistant(Assistant):
         ).to(self.device)
         self._model.eval()
 
-    def _generate_once(self, msg_dicts: list[dict], tools_arg) -> str:
-        """Render the chat template (optionally with tools) and generate once."""
+    def _generate_once(self, msg_dicts: list[dict], tools_arg) -> tuple[str, int, int]:
+        """Render the chat template (optionally with tools) and generate once.
+
+        Returns (text, input_tokens, output_tokens) so the caller can accumulate
+        token usage across the tool loop for the trace.
+        """
         prompt = self._tokenizer.apply_chat_template(
             msg_dicts, tools=tools_arg, tokenize=False, add_generation_prompt=True
         )
@@ -104,13 +111,17 @@ class OSSAssistant(Assistant):
                 top_p=0.9 if do_sample else None,
                 pad_token_id=self._tokenizer.eos_token_id,
             )
+        n_in = inputs["input_ids"].shape[1]
         # Only decode the newly generated tokens, not the echoed prompt.
-        new_tokens = output[0][inputs["input_ids"].shape[1] :]
-        return self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        new_tokens = output[0][n_in:]
+        text = self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        return text, int(n_in), int(new_tokens.shape[0])
 
     def _generate(self, messages: list[Message]) -> str:
         self._ensure_loaded()
         self.last_tool_calls = []
+        self.last_iterations = 0
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
         msg_dicts = [m.as_dict() for m in messages]
         tools_arg = (
             [{"type": "function", "function": s} for s in self.tools.schemas()]
@@ -121,7 +132,10 @@ class OSSAssistant(Assistant):
         # Native tool loop: generate -> parse <tool_call> blocks -> execute ->
         # feed results back as `tool` messages -> repeat until a plain answer.
         for _ in range(MAX_TOOL_ITERS):
-            text = self._generate_once(msg_dicts, tools_arg)
+            self.last_iterations += 1
+            text, n_in, n_out = self._generate_once(msg_dicts, tools_arg)
+            self.last_usage["input_tokens"] += n_in
+            self.last_usage["output_tokens"] += n_out
             calls = _parse_qwen_tool_calls(text) if self.tools is not None else []
             if not calls:
                 return text.strip()
@@ -137,8 +151,12 @@ class OSSAssistant(Assistant):
             })
             for c in calls:
                 args = c.get("arguments", {}) or {}
-                result = self.tools.execute(c["name"], args, self.world)
-                self.last_tool_calls.append({"name": c["name"], "args": args, "result": result})
+                with Timer() as tt:
+                    result = self.tools.execute(c["name"], args, self.world)
+                self.last_tool_calls.append(
+                    {"name": c["name"], "args": args, "result": result,
+                     "ms": tt.ms, "consequential": self.tools.is_consequential(c["name"])}
+                )
                 msg_dicts.append({"role": "tool", "name": c["name"], "content": result})
 
         return "(stopped after too many tool calls)"

@@ -47,9 +47,10 @@ def build_space(dest: Path, source_dir: Path, vendor_backends: list[str]) -> Non
 
     pkg_dest = dest / "assistants"
     pkg_dest.mkdir()
-    # base.py imports tools.py, so it is always vendored (its ddgs import is
-    # lazy, so the plain-chat Spaces don't need the web-search dependency).
-    for name in ["__init__.py", "base.py", "tools.py", *vendor_backends]:
+    # base.py imports tools/version/observability, so those are always vendored
+    # (all stdlib-only or lazy imports, so the plain-chat Spaces stay light).
+    for name in ["__init__.py", "base.py", "tools.py", "version.py",
+                 "observability.py", *vendor_backends]:
         shutil.copy2(ASSISTANTS_PKG / name, pkg_dest / name)
 
 
