@@ -56,6 +56,12 @@ class FrontierAssistant(Assistant):
             system_instruction=self.memory.system_prompt,
             temperature=self.temperature,
             max_output_tokens=self.max_new_tokens,
+            # Gemini 2.5 Flash *thinks* by default, and thinking tokens are billed
+            # against max_output_tokens -- which silently truncated longer replies
+            # mid-sentence (a 5-sentence answer came back as 18 visible tokens).
+            # Disable thinking so the whole budget goes to the visible answer; also
+            # faster, cheaper, and deterministic at temperature 0.
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         )
         if self.tools is not None:
             declarations = [
