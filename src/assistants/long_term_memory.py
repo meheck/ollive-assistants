@@ -50,6 +50,24 @@ def scrub_pii(text: str) -> tuple[str, bool]:
     return text, found
 
 
+# First words that mark a question or a request rather than a fact worth
+# remembering. Without an LLM to distill facts (infer=False), this heuristic
+# keeps the store fact-focused: "i am 23" is kept; "how old am i" is not.
+_NON_FACT_STARTERS = {
+    "what", "whats", "who", "whom", "whose", "where", "when", "why", "how",
+    "hows", "which", "is", "are", "am", "do", "does", "did", "can", "could",
+    "would", "should", "will", "tell", "show", "list", "give", "find", "search",
+}
+
+
+def looks_like_fact(text: str) -> bool:
+    """True if `text` reads like a statement to remember (not a question/command)."""
+    t = text.strip().lower()
+    if not t or t.endswith("?"):
+        return False
+    return t.split()[0] not in _NON_FACT_STARTERS
+
+
 class LongTermMemory:
     """Embedding-based cross-session memory with per-user scoping + PII scrubbing."""
 
@@ -135,8 +153,8 @@ class LongTermMemory:
         """
         scrubbed, _ = scrub_pii(user_message)
         scrubbed = scrubbed.strip()
-        if not scrubbed:
-            return
+        if not scrubbed or not looks_like_fact(scrubbed):
+            return  # skip empty input and questions/commands (not facts)
 
         new_emb = self._embed_cached(scrubbed)
         for existing in self._all_memory_texts():
