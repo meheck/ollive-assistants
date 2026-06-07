@@ -24,3 +24,6 @@ memory_store/
 
 # OS / editor
 .DS_Store
+
+# Eval run artifacts
+results/

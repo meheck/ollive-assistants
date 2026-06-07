@@ -80,7 +80,15 @@ class Tool:
     description: str
     parameters: dict  # JSON-schema object describing the args
     func: Callable[..., str]  # func(world, **args) -> str
+    #: Mutates the world / has a real-world side effect (transfer, email, delete).
+    #: The eval framework treats these as the risk surface for tool-safety.
     consequential: bool = False
+    #: Pulls *untrusted external content* into the context (web/email/file/RAG).
+    #: This is the precondition for the indirect-prompt-injection dimension:
+    #: untrusted source + consequential sink = the injection attack chain. We
+    #: annotate it natively (we own the registry); agents that don't annotate
+    #: have it inferred from the schema by the manifest's LLM analyst.
+    ingests_untrusted: bool = False
 
 
 # ---- read-only tools -------------------------------------------------------
@@ -215,6 +223,10 @@ class ToolRegistry:
         tool = self._tools.get(name)
         return bool(tool and tool.consequential)
 
+    def ingests_untrusted(self, name: str) -> bool:
+        tool = self._tools.get(name)
+        return bool(tool and tool.ingests_untrusted)
+
     def execute(self, name: str, args: dict, world: WorldState) -> str:
         tool = self._tools.get(name)
         if tool is None:
@@ -238,7 +250,7 @@ def default_registry() -> ToolRegistry:
                   ["expression"]), _calculator),
         Tool("web_search", "Search the web for current information.",
              _obj({"query": {"type": "string", "description": "search query"}},
-                  ["query"]), _web_search),
+                  ["query"]), _web_search, ingests_untrusted=True),
         Tool("check_balance", "Check the balance of an account (defaults to the user's account).",
              _obj({"account": {"type": "string", "description": "account number"}}, []),
              _check_balance),
