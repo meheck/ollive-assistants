@@ -77,6 +77,16 @@ class LongTermMemory:
         self.user_id = user_id
         self.top_k = top_k
         self.threshold = threshold
+        #: Cache memory-text -> embedding so we don't re-run the embedder on
+        #: every retrieve (the embedder forward pass dwarfs the cosine math).
+        self._emb_cache: dict[str, list] = {}
+
+    def _embed_cached(self, text: str):
+        emb = self._emb_cache.get(text)
+        if emb is None:
+            emb = self._mem.embedding_model.embed(text)
+            self._emb_cache[text] = emb
+        return emb
 
     def _cosine(self, a, b) -> float:
         import numpy as np
@@ -97,13 +107,14 @@ class LongTermMemory:
         """
         allm = self._mem.get_all(filters={"user_id": self.user_id})
         rows = allm.get("results", allm) if isinstance(allm, dict) else allm
-        candidates = [r.get("memory") for r in rows if r.get("memory")]
+        # Dedupe identical memory texts (Mem0 stores duplicates with infer=False).
+        candidates = list(dict.fromkeys(r.get("memory") for r in rows if r.get("memory")))
         if not candidates:
             return []
 
-        embed = self._mem.embedding_model.embed
-        q_emb = embed(query)
-        scored = [(self._cosine(q_emb, embed(m)), m) for m in candidates]
+        # Embed the query once; reuse cached embeddings for the stored memories.
+        q_emb = self._mem.embedding_model.embed(query)
+        scored = [(self._cosine(q_emb, self._embed_cached(m)), m) for m in candidates]
         scored = [(s, m) for s, m in scored if s >= self.threshold]
         scored.sort(reverse=True)
         return [m for _, m in scored[: self.top_k]]
