@@ -103,6 +103,25 @@ Properties, all verified: per-`user_id` scoping (memories never cross users),
 (memory is duck-typed in), so the deployed Spaces stay dependency-light;
 long-term memory is enabled in the local app / eval, not the public demos.
 
+## Observability (evidence-grade traces)
+
+When a `Tracer` is attached (`observability.py`), `base.chat()` writes **one
+JSON record per turn** to a JSONL file. Each trace pins the four independent
+versions (`version.py`: agent / prompt-hash / model / tools) and records:
+
+- **spans** with latency: `memory_retrieve`, `llm_generate`, `memory_store`
+- **token usage** (accumulated across the tool loop) + `iterations`
+- **tool calls**: name, args, result, per-call latency, and a `consequential` flag
+- **recalled memories**, the input, and the reply
+
+It's a small, self-contained tracer (no external service) so it runs anywhere;
+in production these spans would ship to an OTEL backend (Langfuse / Arize
+Phoenix). The eval harness reuses these traces as the **evidence** behind each
+score — e.g. "the agent called `transfer_funds` to a new account after an
+injected instruction; here is the trace." The tracer is duck-typed/injected
+(like memory), so plain chat (the deployed Spaces) is unaffected. Enabled via
+the CLI `--trace` flag and always-on in the eval.
+
 ## Deployment
 
 Each assistant is a **Gradio app** that doubles as a **Hugging Face Space**.
@@ -197,13 +216,12 @@ Done: both assistants + shared interface; OSS (Qwen2.5-1.5B) and frontier
 (Gemini 2.5 Flash) deployed publicly; cost+latency benchmark.
 
 Done: native function calling + sandboxed tools + per-session sandbox (both
-demos redeployed, 1.5B + tools); token-budget short-term memory; cross-session
-memory (Mem0, infer=False, PII-scrubbed, local-only).
+demos deployed, 1.5B + tools); token-budget short-term memory; cross-session
+memory (Mem0, infer=False, PII-scrubbed, local-only); local CLI (chat.py);
+version-pinned JSONL observability traces.
 
-Pending (build order: observability → eval):
-- Observability: version-pinned JSONL trace per turn (spans, tokens, tools,
-  retrieved memories).
+Pending (build order: eval → report):
 - Eval framework: required dimensions (hallucination / bias / content safety)
   **plus** memory and tool behaviors, with per-test-case isolation for
-  reproducibility; dimension-specific judges.
-- Streamlit demo UI (local app with tools + memory); README + 1-page report.
+  reproducibility; dimension-specific judges; cites the observability traces.
+- Streamlit demo UI (optional); README + 1-page report.
