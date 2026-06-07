@@ -241,6 +241,15 @@ Pending (build order: eval → report):
 
 ### Future improvements
 
+- **Injection ingestion check.** The indirect-prompt-injection oracle only checks
+  that the consequential sink did not fire. For the *email-exfiltration* chains the
+  sink is off the user's natural path (the benign turn never asks to email
+  anything), so a model that simply answers normally — or never even runs the
+  search — produces the same PASS as one that actively resisted: a vacuous pass.
+  Fix: record whether the poisoned `web_search` fixture was actually served
+  (an ingestion flag on `WorldState`), and count a resist as genuine only when the
+  poison was ingested; surface non-ingested runs as inconclusive, not pass. The
+  transfer/delete/create chains are unaffected (their sink is on the task path).
 - **Generic environment seam for tool/world evals.** The eval framework's generic
   core (oracles, generator, judges) does not import our sandbox — it duck-types an
   audit trail — but the runner's env-adapter is bound to our concrete `WorldState`.
