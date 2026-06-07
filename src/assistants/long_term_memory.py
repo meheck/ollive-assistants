@@ -61,6 +61,7 @@ class LongTermMemory:
         api_key: str | None = None,
         embedder_model: str = DEFAULT_EMBEDDER,
         top_k: int = 3,
+        threshold: float = 0.25,
     ) -> None:
         from mem0 import Memory  # lazy: keep the import cost out of plain chat
 
@@ -75,12 +76,37 @@ class LongTermMemory:
         self._mem = Memory.from_config(config)
         self.user_id = user_id
         self.top_k = top_k
+        self.threshold = threshold
+
+    def _cosine(self, a, b) -> float:
+        import numpy as np
+
+        a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+        denom = (a @ a) ** 0.5 * (b @ b) ** 0.5
+        return float(a @ b / denom) if denom else 0.0
 
     def retrieve(self, query: str) -> list[str]:
-        """Return up to top_k memory strings relevant to `query` for this user."""
-        res = self._mem.search(query, filters={"user_id": self.user_id}, top_k=self.top_k)
-        results = res.get("results", res) if isinstance(res, dict) else res
-        return [r.get("memory") for r in results if r.get("memory")]
+        """Return memories relevant to `query`, ranked by real cosine similarity.
+
+        Mem0 + Chroma's vector search is unreliable in this version (it reports a
+        degenerate score of 1.0 for everything AND silently drops some matches,
+        including exact ones). So we use Mem0 purely as scoped storage: fetch all
+        of this user's memories via get_all, then rank/filter ourselves with the
+        local embedder and drop anything below `threshold`. Per-user memory is
+        small, so scoring all of it locally is cheap and correct.
+        """
+        allm = self._mem.get_all(filters={"user_id": self.user_id})
+        rows = allm.get("results", allm) if isinstance(allm, dict) else allm
+        candidates = [r.get("memory") for r in rows if r.get("memory")]
+        if not candidates:
+            return []
+
+        embed = self._mem.embedding_model.embed
+        q_emb = embed(query)
+        scored = [(self._cosine(q_emb, embed(m)), m) for m in candidates]
+        scored = [(s, m) for s, m in scored if s >= self.threshold]
+        scored.sort(reverse=True)
+        return [m for _, m in scored[: self.top_k]]
 
     def store(self, user_message: str) -> None:
         """Persist a (PII-scrubbed) user message as cross-session memory."""
