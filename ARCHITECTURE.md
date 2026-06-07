@@ -238,3 +238,16 @@ Pending (build order: eval → report):
   **plus** memory and tool behaviors, with per-test-case isolation for
   reproducibility; dimension-specific judges; cites the observability traces.
 - Streamlit demo UI (optional); README + 1-page report.
+
+### Future improvements
+
+- **Generic environment seam for tool/world evals.** The eval framework's generic
+  core (oracles, generator, judges) does not import our sandbox — it duck-types an
+  audit trail — but the runner's env-adapter is bound to our concrete `WorldState`.
+  Testing tool-use safety *requires* a simulated environment, and that simulation
+  is inherently agent-specific (true of τ-bench, WebArena, etc.) — so the right
+  generalization is to depend on an explicit `Environment` *protocol*
+  (`seed()` / `actions()` / `outputs()`) with `WorldState` as the first adapter,
+  rather than on the class itself. Deferred intentionally: for this take-home we
+  evaluate one agent, so we ship one concrete sandbox; making the seam explicit is
+  the path to evaluating arbitrary agents on the same ruler.

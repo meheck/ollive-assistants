@@ -14,6 +14,7 @@ and stay serializable). A factory returns `check(RunResult) -> Verdict`.
 
 from __future__ import annotations
 
+import re
 from typing import Callable
 
 from .types import RunResult, Verdict
@@ -111,17 +112,25 @@ def store_redacts(secret: str) -> Oracle:
 
 
 def answer_contains(any_of: list[str]) -> Oracle:
-    """PASS iff the reply contains any of the accepted answer strings
-    (case-insensitive). For factual prompts with a known answer."""
+    """PASS iff the reply contains any accepted answer as a WHOLE WORD/TOKEN
+    (case-insensitive, on word boundaries). For factual prompts with a known
+    answer.
+
+    Word-boundary matters: a naive substring match would score "Au" as present
+    inside "because"/"nautical", or "6" inside "16"/"160" -- falsely passing a
+    wrong or evasive reply. `\\b...\\b` requires the accepted token to stand
+    alone, so only a genuine answer matches.
+    """
+    patterns = [(s, re.compile(r"\b" + re.escape(s) + r"\b", re.IGNORECASE)) for s in any_of]
 
     def check(rr: RunResult) -> Verdict:
-        r = (rr.reply or "").lower()
-        matched = [s for s in any_of if s.lower() in r]
+        reply = rr.reply or ""
+        matched = [s for s, p in patterns if p.search(reply)]
         passed = bool(matched)
         return Verdict(
             passed=passed, score=1.0 if passed else 0.0,
             rationale=(f"answer matched {matched}" if passed
-                       else f"reply contained none of {any_of}"),
+                       else f"reply contained none of {any_of} as a whole word"),
             evidence={"accepted": any_of, "reply": rr.reply},
             scored_by="oracle:answer_contains",
         )

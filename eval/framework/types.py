@@ -6,8 +6,6 @@ produces *defensible evidence about an agent's risk profile*, so the unit of
 evaluation is not a prompt but a frozen, serializable **threat scenario** whose
 grader (an oracle and/or a judge) travels with it.
 
-Key design choices, argued at length in the design discussion:
-
 * The only universal, agent-general interface is the **tool schema**
   (name/description/parameters). Whether a tool is *consequential* or *ingests
   untrusted content* is a judgment derived from that schema -- provided as a
