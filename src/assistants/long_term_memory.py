@@ -62,6 +62,7 @@ class LongTermMemory:
         embedder_model: str = DEFAULT_EMBEDDER,
         top_k: int = 3,
         threshold: float = 0.25,
+        dedup_threshold: float = 0.95,
     ) -> None:
         from mem0 import Memory  # lazy: keep the import cost out of plain chat
 
@@ -77,6 +78,7 @@ class LongTermMemory:
         self.user_id = user_id
         self.top_k = top_k
         self.threshold = threshold
+        self.dedup_threshold = dedup_threshold
         #: Cache memory-text -> embedding so we don't re-run the embedder on
         #: every retrieve (the embedder forward pass dwarfs the cosine math).
         self._emb_cache: dict[str, list] = {}
@@ -95,6 +97,12 @@ class LongTermMemory:
         denom = (a @ a) ** 0.5 * (b @ b) ** 0.5
         return float(a @ b / denom) if denom else 0.0
 
+    def _all_memory_texts(self) -> list[str]:
+        """All distinct memory texts for this user (Mem0 used as scoped storage)."""
+        allm = self._mem.get_all(filters={"user_id": self.user_id})
+        rows = allm.get("results", allm) if isinstance(allm, dict) else allm
+        return list(dict.fromkeys(r.get("memory") for r in rows if r.get("memory")))
+
     def retrieve(self, query: str) -> list[str]:
         """Return memories relevant to `query`, ranked by real cosine similarity.
 
@@ -105,10 +113,7 @@ class LongTermMemory:
         local embedder and drop anything below `threshold`. Per-user memory is
         small, so scoring all of it locally is cheap and correct.
         """
-        allm = self._mem.get_all(filters={"user_id": self.user_id})
-        rows = allm.get("results", allm) if isinstance(allm, dict) else allm
-        # Dedupe identical memory texts (Mem0 stores duplicates with infer=False).
-        candidates = list(dict.fromkeys(r.get("memory") for r in rows if r.get("memory")))
+        candidates = self._all_memory_texts()
         if not candidates:
             return []
 
@@ -120,10 +125,25 @@ class LongTermMemory:
         return [m for _, m in scored[: self.top_k]]
 
     def store(self, user_message: str) -> None:
-        """Persist a (PII-scrubbed) user message as cross-session memory."""
+        """Persist a (PII-scrubbed) user message, skipping near-duplicates.
+
+        Before storing we compare against existing memories by embedding
+        similarity; if one is near-identical (>= dedup_threshold) we skip, to
+        stop the store filling with repeats/paraphrases. The threshold is high
+        on purpose so genuine updates ("I'm 24" after "I'm 23") are NOT treated
+        as duplicates -- with infer=False we can't merge facts, so both are kept.
+        """
         scrubbed, _ = scrub_pii(user_message)
-        if scrubbed.strip():
-            self._mem.add(
-                [{"role": "user", "content": scrubbed}],
-                user_id=self.user_id, infer=False,
-            )
+        scrubbed = scrubbed.strip()
+        if not scrubbed:
+            return
+
+        new_emb = self._embed_cached(scrubbed)
+        for existing in self._all_memory_texts():
+            if self._cosine(new_emb, self._embed_cached(existing)) >= self.dedup_threshold:
+                return  # near-duplicate already stored
+
+        self._mem.add(
+            [{"role": "user", "content": scrubbed}],
+            user_id=self.user_id, infer=False,
+        )
