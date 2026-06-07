@@ -107,12 +107,25 @@ long-term memory is enabled in the local app / eval, not the public demos.
 
 When a `Tracer` is attached (`observability.py`), `base.chat()` writes **one
 JSON record per turn** to a JSONL file. Each trace pins the four independent
-versions (`version.py`: agent / prompt-hash / model / tools) and records:
+versions (`version.py`: agent / prompt / model / tools) and records:
 
 - **spans** with latency: `memory_retrieve`, `llm_generate`, `memory_store`
 - **token usage** (accumulated across the tool loop) + `iterations`
 - **tool calls**: name, args, result, per-call latency, and a `consequential` flag
 - **recalled memories**, the input, and the reply
+
+**Version ids are dereferenceable, not just fingerprints.** The `prompt` and
+`tools` ids are one-way **content hashes** (`prompt-<sha1>`,
+`tools-1.0.0+<sha1>`): they change automatically when the prompt text or any
+tool schema changes — the tools id is hashed from the schemas, so it *can't*
+silently drift the way a hand-bumped constant could. Because a hash alone can't
+reconstruct the content, the tracer also writes a shared **`manifest.json`**
+next to the traces mapping each id → its actual content (the full system prompt
+text, the full tool schemas). So a trace's `prompt-72b6303d` /
+`tools-1.0.0+acb7a6d9` can be resolved back to *exactly* what produced it —
+which is what lets the eval harness cite a trace as evidence rather than just
+"some configuration". (`agent` and `model` ids are already self-describing, so
+they need no manifest entry.)
 
 It's a small, self-contained tracer (no external service) so it runs anywhere;
 in production these spans would ship to an OTEL backend (Langfuse / Arize

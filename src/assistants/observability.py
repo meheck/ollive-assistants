@@ -43,7 +43,16 @@ class Timer:
 
 @dataclass
 class Tracer:
-    """Append-only JSONL tracer, one file per session."""
+    """Append-only JSONL tracer, one file per session.
+
+    Each trace pins version *ids* (e.g. `prompt-72b6303d`, `tools-1.0.0+ab12cd34`)
+    that are one-way content hashes. So that those ids are *dereferenceable* --
+    "what exact prompt/tool schema produced this trace?" -- the tracer also keeps
+    a shared `manifest.json` next to the traces mapping each id to its actual
+    content. Without it, observability could only detect drift, not reconstruct
+    the configuration; the eval harness needs reconstruction to use a trace as
+    evidence.
+    """
 
     trace_dir: str = DEFAULT_TRACE_DIR
     session_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
@@ -51,7 +60,32 @@ class Tracer:
     def __post_init__(self) -> None:
         os.makedirs(self.trace_dir, exist_ok=True)
         self.path = os.path.join(self.trace_dir, f"{self.session_id}.jsonl")
+        self.manifest_path = os.path.join(self.trace_dir, "manifest.json")
+        #: ids already written this session, so we touch the manifest at most once.
+        self._registered: set[str] = set()
 
     def record(self, trace: dict) -> None:
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(trace, ensure_ascii=False) + "\n")
+
+    def register(self, entries: dict[str, dict]) -> None:
+        """Map version-id -> artifact (prompt text, tool schemas) in the manifest.
+
+        Merges into the shared `manifest.json` (read-modify-write) and is
+        idempotent: ids are content hashes, so re-registering the same id writes
+        the same content. After the first turn of a session this is a no-op.
+        """
+        fresh = {k: v for k, v in entries.items() if k not in self._registered}
+        if not fresh:
+            return
+        manifest: dict = {}
+        if os.path.exists(self.manifest_path):
+            try:
+                with open(self.manifest_path, encoding="utf-8") as f:
+                    manifest = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                manifest = {}
+        manifest.update(fresh)
+        with open(self.manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+        self._registered.update(fresh)

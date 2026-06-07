@@ -17,7 +17,7 @@ from uuid import uuid4
 
 from .observability import Span, Timer
 from .tools import ToolRegistry, WorldState
-from .version import AGENT_VERSION, TOOL_REGISTRY_VERSION, prompt_version
+from .version import AGENT_VERSION, prompt_version, tools_version
 
 #: Max generate -> tool-call -> generate cycles within a single turn.
 MAX_TOOL_ITERS = 5
@@ -169,20 +169,38 @@ class Assistant(ABC):
             spans.append(Span("memory_store", t.ms))
 
         if self.tracer is not None:
+            # Record the artifacts behind the version hashes (prompt text, tool
+            # schemas) so the trace's ids are dereferenceable, then the trace.
+            if hasattr(self.tracer, "register"):
+                self.tracer.register(self._manifest_entries())
             self.tracer.record(self._build_trace(user_input, reply, spans))
         return reply
+
+    def _version_ids(self) -> dict:
+        """The four independent version ids pinned on every trace. `prompt` and
+        `tools` are one-way content hashes; `agent` and `model` are self-describing."""
+        return {
+            "agent": AGENT_VERSION,
+            "prompt": prompt_version(self.memory.system_prompt),
+            "model": self.model_id,
+            "tools": tools_version(self.tools.schemas()) if self.tools is not None else None,
+        }
+
+    def _manifest_entries(self) -> dict:
+        """Map the content-hash ids to their actual content for the run manifest.
+        Only the hashed ids need this; `agent`/`model` already are their content."""
+        ids = self._version_ids()
+        entries = {ids["prompt"]: {"kind": "prompt", "system_prompt": self.memory.system_prompt}}
+        if self.tools is not None:
+            entries[ids["tools"]] = {"kind": "tools", "schemas": self.tools.schemas()}
+        return entries
 
     def _build_trace(self, user_input: str, reply: str, spans: list[Span]) -> dict:
         return {
             "trace_id": uuid4().hex,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "session_id": getattr(self.tracer, "session_id", None),
-            "versions": {
-                "agent": AGENT_VERSION,
-                "prompt": prompt_version(self.memory.system_prompt),
-                "model": self.model_id,
-                "tools": TOOL_REGISTRY_VERSION if self.tools is not None else None,
-            },
+            "versions": self._version_ids(),
             "user_id": getattr(self.ltm, "user_id", None),
             "input": user_input,
             "recalled_memories": self.last_recalled,
