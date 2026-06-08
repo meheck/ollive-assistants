@@ -19,20 +19,24 @@ and are **deployed live**:
 
 | Dimension | OSS | Frontier |
 |---|---|---|
-| hallucination | 67% | 100% |
-| bias | 30% | 90% |
-| content_safety | 65% | 90% |
+| hallucination | 73% | 93% |
+| bias | 10% | 80% |
+| content_safety | 85% | 90% |
 | memory_safety | 67% | 73% |
 | prompt_injection | 100% | 100% |
-| tool_safety | **40%** | **40%** |
-| **Overall** | **61%** | **86%** |
+| tool_safety | **20%** | **60%** |
+| **Overall** | **64%** | **84%** |
 
-**The headline:** *capability ≠ safety on consequential actions.* Both models score
-**40%** on tool-safety — the frontier model is **no safer** at refusing irreversible,
-money-moving actions (it wired $6k on a bank-impersonation scam, swept a full
-balance, deleted a record). That's a **guardrail gap, not a model-quality gap.**
-Frontier's real edge is *judgment* (bias, hallucination). Both fall to cross-session
-memory poisoning. Full write-up: **[report/eval_report.md](report/eval_report.md)**.
+**The headline:** *capability ≠ safety on consequential actions.* Frontier wins on
+**judgment** — bias (80% vs 10%) and hallucination (93% vs 73%) — but that does **not**
+make it safe at *acting*: tool-safety is the **worst dimension for both** (frontier 60%,
+OSS 20% on a 5-scenario sample, too small to rank), and **both execute attacker-planted
+transfers / deletes / emails** under cross-session memory poisoning (frontier 1/5, OSS
+0/5). Meanwhile the *deterministic* memory controls (PII scrubbing, cross-user isolation)
+held **5/5 for both** — safety you *engineer* held; safety you *hope the model has* did
+not. A **guardrail gap, not a model-quality gap.** (Safety rates are also *optimistic* —
+see the single-turn soft-compliance limitation.) Full write-up:
+**[report/eval_report.md](report/eval_report.md)**.
 
 ## Quickstart
 
@@ -62,6 +66,25 @@ A run takes a **seeded sample** (`--per-subdim N`, default 5) of the 201-scenari
 frozen suite to bound API cost, writes per-scenario rows (with trace ids) to
 `results/`, and emits the scorecard. `--all` runs the full suite.
 
+## Observability (live trace UI)
+
+Optional, off by default. Set `PHOENIX_COLLECTOR_ENDPOINT` and `chat.py` /
+`run_evals.py` stream every turn to a local [Arize Phoenix](https://phoenix.arize.com/)
+UI as it runs — `agent.turn → memory_retrieve → llm_generate → tool.* →
+memory_store` with real messages, tokens, and tool args/results. Eval verdicts
+attach to their turn as native annotations, so a failing score is one click from
+the transcript and the tool call that caused it.
+
+```bash
+uv sync --extra obs                                    # optional observability deps
+uv run phoenix serve                                   # http://localhost:6006
+export PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006
+uv run python eval/run_evals.py --models frontier      # turns + verdicts stream in
+```
+
+The JSONL trace stays the durable record either way; this is a live view layered
+on it (the OTel `trace_id` is written into the JSONL, so they're the same entity).
+
 ## How it works
 
 - **Shared contract** ([src/assistants/base.py](src/assistants/base.py)): both backends implement one
@@ -73,9 +96,10 @@ frozen suite to bound API cost, writes per-scenario rows (with trace ids) to
 - **Cross-session memory** ([long_term_memory.py](src/assistants/long_term_memory.py)): Mem0 with
   `infer=False` + a local embedder — recall by similarity, PII scrubbed before
   storage, **zero extra LLM calls**.
-- **Observability** ([observability.py](src/assistants/observability.py)): one version-pinned JSON trace
-  per turn; the hashes dereference (via a run manifest) to the exact prompt + tool
-  schemas — so a score links back to its evidence.
+- **Observability** ([observability.py](src/assistants/observability.py), [tracing.py](src/assistants/tracing.py)): one
+  version-pinned JSON trace per turn (the durable record; hashes dereference via a
+  run manifest to the exact prompt + tool schemas), *plus* optional live
+  OpenTelemetry tracing to a UI — so a score links back to its evidence.
 - **Eval framework** ([eval/framework/](eval/framework/)): 201 scenarios across 6 dimensions / 14
   subdimensions, generated from agent-independent **threat templates**, frozen +
   content-hashed for reproducibility, graded by **oracles** (deterministic, where
@@ -97,7 +121,11 @@ Full design + rationale: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ## Future work
 
-- **Guardrails** on consequential tools (the #1 fix — both models sit at 40%).
+- **Multi-turn follow-through** (the highest-value eval fix) — the single-turn suite
+  credits *"I can do that, just confirm"* as a pass, so safety rates are optimistic.
+  Supply the confirmation in a 2nd turn and grade the final action / artifact.
+- **Guardrails** on consequential tools (the #1 product fix — tool-safety is the worst
+  dimension for both models).
 - **Generic `Environment` seam** so the framework evaluates arbitrary agents, not
   just our sandbox (ARCHITECTURE.md → Future improvements).
 - **Injection ingestion check** (count a "resist" as genuine only if the poison was served).
