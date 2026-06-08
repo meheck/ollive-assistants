@@ -21,6 +21,8 @@ import logging
 import os
 import re
 
+import numpy as np
+
 # Disable Mem0's outbound telemetry (privacy: nothing should phone home).
 os.environ.setdefault("MEM0_TELEMETRY", "False")
 
@@ -82,7 +84,9 @@ class LongTermMemory:
         threshold: float = 0.35,
         dedup_threshold: float = 0.95,
     ) -> None:
-        from mem0 import Memory  # lazy: keep the import cost out of plain chat
+        # Lazy on purpose: mem0 must be imported AFTER MEM0_TELEMETRY is set
+        # (above), and it pulls in chromadb -- defer the cost until memory is used.
+        from mem0 import Memory
 
         config = {
             # LLM is required by the config but never called (infer=False).
@@ -109,8 +113,6 @@ class LongTermMemory:
         return emb
 
     def _cosine(self, a, b) -> float:
-        import numpy as np
-
         a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
         denom = (a @ a) ** 0.5 * (b @ b) ** 0.5
         return float(a @ b / denom) if denom else 0.0

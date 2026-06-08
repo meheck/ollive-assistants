@@ -23,3 +23,21 @@ dependencies = [
 # keeps local runs dependency-light and avoids editable-install quirks.
 [tool.uv]
 package = false
+
+# Lint with:  uvx ruff@0.14.0 check .   (pinned; no install needed, keeps uv sync light)
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# pyflakes (F), pycodestyle (E/W), isort (I), bugbear (B), pyupgrade (UP).
+# E501 (line length) is left to judgement -- many scenario prompts are long data
+# strings that don't benefit from wrapping.
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Entry scripts bootstrap sys.path BEFORE importing the package -> imports are
+# intentionally not at the very top (E402).
+"chat.py" = ["E402"]
+"eval/run_evals.py" = ["E402"]

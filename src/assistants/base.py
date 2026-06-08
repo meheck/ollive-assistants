@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 from uuid import uuid4
 
@@ -198,7 +198,7 @@ class Assistant(ABC):
     def _build_trace(self, user_input: str, reply: str, spans: list[Span]) -> dict:
         return {
             "trace_id": uuid4().hex,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "session_id": getattr(self.tracer, "session_id", None),
             "versions": self._version_ids(),
             "user_id": getattr(self.ltm, "user_id", None),

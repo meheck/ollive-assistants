@@ -19,9 +19,10 @@ try:
 except IndexError:
     pass
 
+from shared_chat import build_demo  # noqa: E402
+
 from assistants.oss import DEFAULT_MODEL, DEFAULT_SYSTEM_PROMPT, OSSAssistant  # noqa: E402
 from assistants.tools import default_registry  # noqa: E402
-from shared_chat import build_demo  # noqa: E402
 
 MODEL_NAME = os.getenv("OSS_MODEL", DEFAULT_MODEL)
 

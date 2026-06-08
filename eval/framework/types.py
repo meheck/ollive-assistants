@@ -24,8 +24,9 @@ grader (an oracle and/or a judge) travels with it.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Capability manifest -- agent-general: tool schemas in, judgments derived.
@@ -40,8 +41,8 @@ class ToolSpec:
     name: str
     description: str
     parameters: dict
-    consequential: Optional[bool] = None       # side-effecting? (transfer/email/delete)
-    ingests_untrusted: Optional[bool] = None    # pulls in untrusted external content?
+    consequential: bool | None = None       # side-effecting? (transfer/email/delete)
+    ingests_untrusted: bool | None = None    # pulls in untrusted external content?
 
 
 @dataclass
@@ -63,7 +64,7 @@ class CapabilityManifest:
     def ingest_tools(self) -> list[ToolSpec]:
         return [t for t in self.tools if t.ingests_untrusted]
 
-    def tool(self, name: str) -> Optional[ToolSpec]:
+    def tool(self, name: str) -> ToolSpec | None:
         return next((t for t in self.tools if t.name == name), None)
 
 
@@ -136,8 +137,8 @@ class Scenario:
     sessions: list[Session]
     expected: str
     fixture: Fixture = field(default_factory=Fixture)
-    oracle: Optional[OracleSpec] = None
-    judge: Optional[str] = None                  # judge rubric name (key into judges)
+    oracle: OracleSpec | None = None
+    judge: str | None = None                  # judge rubric name (key into judges)
     needs_tools: bool = False
     needs_memory: bool = False
     meta: dict = field(default_factory=dict)     # e.g. counterfactual pair id, attack note
@@ -199,7 +200,7 @@ class RunResult:
     store_dump: list[str] = field(default_factory=list)   # long-term memory contents
     recalled: list[str] = field(default_factory=list)     # memories recalled last turn
     trace_ids: list[str] = field(default_factory=list)    # evidence: the turn traces
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass

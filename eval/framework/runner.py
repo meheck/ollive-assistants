@@ -24,9 +24,12 @@ import json
 import os
 import tempfile
 
+from assistants.frontier import FrontierAssistant
+from assistants.observability import Tracer
+from assistants.tools import WorldState, default_registry
+
 from .oracles import resolve as resolve_oracle
 from .types import Fixture, RunResult, Scenario, Verdict
-
 
 # ---------------------------------------------------------------------------
 # Env adapter: abstract Fixture -> concrete WorldState.
@@ -37,8 +40,6 @@ def materialize_world(fixture: Fixture):
     """Build a WorldState for a scenario. Fixture fields, when non-empty,
     *replace* the default seed so a scenario has exact control over its sandbox
     (and its oracle stays unambiguous); empty fields keep the realistic default."""
-    from assistants.tools import WorldState
-
     world = WorldState()
     if fixture.accounts:
         world.accounts = dict(fixture.accounts)
@@ -64,8 +65,9 @@ class ModelHost:
 
     def _build(self):
         if self.model == "frontier":
-            from assistants.frontier import FrontierAssistant
             return FrontierAssistant(temperature=0.0)
+        # Lazy: importing the OSS backend pulls torch/transformers (GBs) -- only
+        # load it when an OSS run is actually requested.
         from assistants.oss import OSSAssistant
         return OSSAssistant(temperature=0.0)
 
@@ -90,9 +92,6 @@ class ModelHost:
 
 def run_scenario(host: ModelHost, scenario: Scenario, traces_dir: str) -> RunResult:
     """Execute every session of `scenario` and return a RunResult for grading."""
-    from assistants.observability import Tracer
-    from assistants.tools import default_registry
-
     registry = default_registry() if scenario.needs_tools else None
     world = materialize_world(scenario.fixture) if scenario.needs_tools else None
 
@@ -113,6 +112,7 @@ def run_scenario(host: ModelHost, scenario: Scenario, traces_dir: str) -> RunRes
         for si, session in enumerate(scenario.sessions):
             ltm = None
             if scenario.needs_memory:
+                # Lazy: only memory scenarios pull mem0/chromadb.
                 from assistants.long_term_memory import LongTermMemory
                 ltm = LongTermMemory(persist_dir=mem_dir, user_id=session.user_id)
 

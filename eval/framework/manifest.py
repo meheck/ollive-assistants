@@ -20,6 +20,9 @@ Two paths, in priority order:
 from __future__ import annotations
 
 import json
+import os
+
+from google import genai
 
 from .types import CapabilityManifest, ToolSpec
 
@@ -107,11 +110,7 @@ def _parse_verdicts(raw: str) -> list[dict]:
 
 
 def _default_llm():
-    """Lazily build a Gemini text-completion callable for the analyst."""
-    import os
-
-    from google import genai
-
+    """Build a Gemini text-completion callable for the analyst."""
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
 
     def call(prompt: str) -> str:

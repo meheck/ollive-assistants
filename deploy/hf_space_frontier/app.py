@@ -20,10 +20,10 @@ except IndexError:
     pass
 
 import gradio as gr  # noqa: E402
+from shared_chat import ingest_history  # noqa: E402
 
 from assistants.frontier import DEFAULT_SYSTEM_PROMPT, FrontierAssistant  # noqa: E402
 from assistants.tools import WorldState, default_registry  # noqa: E402
-from shared_chat import ingest_history  # noqa: E402
 
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 

@@ -23,6 +23,8 @@ import sys
 import time
 from pathlib import Path
 
+from gradio_client import Client
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
@@ -81,8 +83,6 @@ def bench_local() -> dict:
 
 def bench_space(space_id: str) -> dict:
     """End-to-end round-trip latency against the live HF Space."""
-    from gradio_client import Client
-
     client = Client(space_id, verbose=False)
     latencies: list[float] = []
     for prompt in PROMPTS:

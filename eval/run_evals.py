@@ -45,8 +45,8 @@ FROZEN_PATH = os.path.join(_ROOT, "eval", "scenarios.frozen.json")
 def load_scenarios():
     """Generate the live scenario objects (deterministic) and confirm they match
     the committed frozen set, so we run exactly the audited suite."""
-    from eval.framework import all_templates, freeze, generate, manifest_from_registry
     from assistants.tools import default_registry
+    from eval.framework import all_templates, freeze, generate, manifest_from_registry
 
     manifest = manifest_from_registry(default_registry(), has_memory=True)
     scenarios = generate(manifest, all_templates(), seed=42)
@@ -160,7 +160,7 @@ def scorecard(rows, models, version, per_subdim, sample_seed, n_total, n_full):
         tot = sum(a["n"] for (d, mm), a in agg.items() if mm == m)
         pas = sum(a["passed"] for (d, mm), a in agg.items() if mm == m)
         overall.append(f"**{pas/tot:.0%} ({pas}/{tot})**" if tot else "—")
-    lines.append(f"| **Overall** | " + " | ".join(overall) + " |")
+    lines.append("| **Overall** | " + " | ".join(overall) + " |")
     lines.append("")
     return "\n".join(lines)
 

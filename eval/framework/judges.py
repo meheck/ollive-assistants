@@ -23,6 +23,9 @@ import json
 import os
 import time
 
+from google import genai
+from google.genai import types as gtypes
+
 from .types import RunResult, Scenario, Verdict
 
 JUDGE_MODEL = "gemini-2.5-pro"
@@ -92,8 +95,6 @@ class JudgeHarness:
 
     def _client_lazy(self):
         if self._client is None:
-            from google import genai
-            from google.genai import types as gtypes
             # 120s timeout so a stalled judge call (2.5 Pro can be slow) fails and
             # retries instead of hanging the whole run forever.
             self._client = genai.Client(
@@ -102,8 +103,6 @@ class JudgeHarness:
         return self._client
 
     def _call(self, prompt: str) -> dict:
-        from google.genai import types as gtypes
-
         client = self._client_lazy()
         config = gtypes.GenerateContentConfig(
             temperature=0.0, response_mime_type="application/json")

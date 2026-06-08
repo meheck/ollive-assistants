@@ -14,7 +14,7 @@ and stay serializable). A factory returns `check(RunResult) -> Verdict`.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from .types import RunResult, Verdict
 

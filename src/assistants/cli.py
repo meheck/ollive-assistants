@@ -19,6 +19,10 @@ import os
 
 from dotenv import load_dotenv
 
+from .frontier import FrontierAssistant
+from .observability import Tracer
+from .tools import default_registry
+
 BANNER = """\
 Ollive local assistant
   model:   {model}
@@ -70,23 +74,20 @@ def main() -> None:
 
     user_id = _resolve_user(args.user)
 
-    from .tools import default_registry
     tools = None if args.no_tools else default_registry()
 
     ltm = None
     if not args.no_memory:
+        # Lazy: only the memory path pulls mem0/chromadb.
         from .long_term_memory import LongTermMemory
         ltm = LongTermMemory(persist_dir=args.memory_dir, user_id=user_id)
 
-    tracer = None
-    if args.trace:
-        from .observability import Tracer
-        tracer = Tracer()
+    tracer = Tracer() if args.trace else None
 
     if args.model == "frontier":
-        from .frontier import FrontierAssistant
         assistant = FrontierAssistant(tools=tools, long_term_memory=ltm, tracer=tracer)
     else:
+        # Lazy: importing the OSS backend pulls torch/transformers (GBs).
         from .oss import OSSAssistant
         print("Loading the open-source model (first run downloads weights)...")
         assistant = OSSAssistant(tools=tools, long_term_memory=ltm, tracer=tracer)
