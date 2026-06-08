@@ -1,6 +1,6 @@
 """Cost + latency benchmark for the open-source deployment.
 
-Measures the Qwen2.5-0.5B assistant two ways:
+Measures the OSS assistant (Qwen2.5-1.5B-Instruct by default) two ways:
   1. Local in-process (transformers on CPU): cold-load time, warm per-turn
      latency, and generation throughput (tokens/sec).
   2. The live Hugging Face Space (end-to-end round-trip incl. network/queue).
@@ -134,9 +134,9 @@ def render_markdown(local: dict, space: dict | None) -> str:
         "|---|---|---|---|",
         "| **Deployed (current)** | HF Space free CPU (2 vCPU, 16 GB) | **$0** | Sleeps after ~48 h idle; cold-starts on next visit |",
         "| CPU upgrade | 8 vCPU, 32 GB | ~$0.03 / hr | Lower latency, no sleep (verify current HF pricing) |",
-        "| GPU (T4 small) | 16 GB VRAM | ~$0.40 / hr | Only needed for larger models; overkill for 0.5B |",
+        "| GPU (T4 small) | 16 GB VRAM | ~$0.40 / hr | Only needed for larger models; not required here |",
         "",
-        "At free tier the marginal cost per request is **$0**. The 0.5B model "
+        f"At free tier the marginal cost per request is **$0**. {local['model']} "
         "fits in a CPU container, so no GPU is required — that is the core "
         "cost advantage of a small OSS model for this use case.",
         "",
