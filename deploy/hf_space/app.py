@@ -1,4 +1,4 @@
-"""Gradio chat UI for the open-source assistant (Qwen2.5-0.5B-Instruct).
+"""Gradio chat UI for the open-source assistant (Qwen2.5-1.5B-Instruct).
 
 Entrypoint for both local runs and the public Hugging Face Space. UI-only; the
 model/memory logic lives in the shared `assistants` package and the chat glue

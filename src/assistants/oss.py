@@ -1,6 +1,6 @@
 """Open-source assistant backed by a Hugging Face model.
 
-Defaults to Qwen2.5-0.5B-Instruct -- the model Ollive recommends for the
+Defaults to Qwen2.5-1.5B-Instruct -- a small instruction-tuned model for the
 Hugging Face Spaces deployment. It is small enough to run on CPU (and the HF
 free Space tier) yet instruction-tuned, so it behaves like an assistant rather
 than a raw text completer.
