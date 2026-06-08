@@ -34,6 +34,8 @@ sys.path.insert(0, os.path.join(_ROOT, "src"))  # for `import assistants`
 
 from dotenv import load_dotenv  # noqa: E402
 
+from assistants.tracing import configure_tracing, flush, log_span_annotations, tracing_enabled
+
 FROZEN_PATH = os.path.join(_ROOT, "eval", "scenarios.frozen.json")
 
 
@@ -106,6 +108,7 @@ def run(models, scenarios, version, sample_seed, traces_dir):
                 "verdicts": result.get("verdicts", []),
                 "error": result.get("error") or rr.error,
                 "trace_ids": rr.trace_ids,
+                "span_ids": rr.span_ids,
                 "framework_version": version,
                 "sample_seed": sample_seed,
             })
@@ -113,6 +116,43 @@ def run(models, scenarios, version, sample_seed, traces_dir):
             print(f"  [{i:>3}/{len(scenarios)}] {mark} {model:<8} {sc.id} "
                   f"score={result.get('score', 0.0):.2f}")
     return rows
+
+
+def load_result_rows(models, out_tmpl):
+    """Load saved result rows from per-model files (for --annotate-only)."""
+    rows = []
+    for m in models:
+        path = out_tmpl.replace("{model}", m)
+        if not os.path.exists(path):
+            print(f"  ! no results file for {m}: {path}")
+            continue
+        with open(path, encoding="utf-8") as f:
+            rows.extend(json.loads(line) for line in f if line.strip())
+    return rows
+
+
+def annotate_phoenix(rows):
+    """Attach each scenario's verdict to its turn spans as Phoenix annotations,
+    so scores show in the evals UI (not just as offline rows). No-op unless live
+    tracing was on. Spans are flushed first so their ids exist server-side; the
+    logger then waits for ingestion and upserts, so it's safe to re-run."""
+    flush()
+    items = []
+    for r in rows:
+        verdicts = r.get("verdicts") or []
+        scored_by = verdicts[0].get("scored_by", "") if verdicts else ""
+        kind = "LLM" if scored_by.startswith("judge") else "CODE"
+        rationale = verdicts[0].get("rationale") if verdicts else None
+        for span_id in r.get("span_ids") or []:
+            items.append({
+                "span_id": span_id,
+                "label": "pass" if r["passed"] else "fail",
+                "score": r["score"],
+                "explanation": (rationale or "")[:1000],
+                "annotator_kind": kind,
+            })
+    n = log_span_annotations(items)
+    print(f"phoenix: logged {n} eval annotations on {len(rows)} scenarios")
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +210,9 @@ def scorecard(rows, models, version, per_subdim, sample_seed, n_total, n_full):
 
 def main():
     load_dotenv()
+    # Stream every turn to Phoenix if PHOENIX_COLLECTOR_ENDPOINT is set (else a
+    # no-op); verdicts are attached as span annotations after the run.
+    live = configure_tracing()
     p = argparse.ArgumentParser(description="Run the Ollive eval suite -> scorecard")
     p.add_argument("--models", default="frontier,oss",
                    help="comma-separated: frontier,oss (default both)")
@@ -180,18 +223,33 @@ def main():
     p.add_argument("--out", default=os.path.join(_ROOT, "results", "eval_results.jsonl"))
     p.add_argument("--scorecard", default=os.path.join(_ROOT, "report", "scorecard.md"))
     p.add_argument("--traces", default=os.path.join(_ROOT, "results", "eval_traces"))
+    p.add_argument("--annotate-only", action="store_true",
+                   help="re-attach verdicts from saved results/eval_results_<model>.jsonl "
+                        "to Phoenix spans (no eval run); needs PHOENIX_COLLECTOR_ENDPOINT")
     args = p.parse_args()
 
     models = [m.strip() for m in args.models.split(",") if m.strip()]
     per_subdim = None if args.all else args.per_subdim
 
+    if args.annotate_only:
+        if not tracing_enabled():
+            raise SystemExit("--annotate-only needs PHOENIX_COLLECTOR_ENDPOINT set.")
+        tmpl = os.path.join(_ROOT, "results", "eval_results_{model}.jsonl")
+        rows = load_result_rows(models, tmpl)
+        print(f"Re-annotating {len(rows)} saved results -> Phoenix")
+        annotate_phoenix(rows)
+        return
+
     scenarios, version = load_scenarios()
     n_full = len(scenarios)
     sampled = sample(scenarios, per_subdim, args.sample_seed)
     print(f"Framework {version} | {n_full} scenarios -> running {len(sampled)} "
-          f"({'full' if per_subdim is None else f'{per_subdim}/subdim'}) x {models}")
+          f"({'full' if per_subdim is None else f'{per_subdim}/subdim'}) x {models}"
+          + (" | live tracing -> Phoenix" if live else ""))
 
     rows = run(models, sampled, version, args.sample_seed, args.traces)
+    if tracing_enabled():
+        annotate_phoenix(rows)
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:

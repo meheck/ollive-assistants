@@ -27,3 +27,6 @@ memory_store/
 
 # Eval run artifacts
 results/
+
+# Phoenix local trace store (regenerated)
+.phoenix/

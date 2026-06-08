@@ -47,10 +47,11 @@ def build_space(dest: Path, source_dir: Path, vendor_backends: list[str]) -> Non
 
     pkg_dest = dest / "assistants"
     pkg_dest.mkdir()
-    # base.py imports tools/version/observability, so those are always vendored
-    # (all stdlib-only or lazy imports, so the plain-chat Spaces stay light).
+    # base.py imports tools/version/observability/tracing, so those are always
+    # vendored (all stdlib-only or lazy imports, so the plain-chat Spaces stay
+    # light -- tracing's OpenTelemetry deps load only if an endpoint is set).
     for name in ["__init__.py", "base.py", "tools.py", "version.py",
-                 "observability.py", *vendor_backends]:
+                 "observability.py", "tracing.py", *vendor_backends]:
         shutil.copy2(ASSISTANTS_PKG / name, pkg_dest / name)
 
 

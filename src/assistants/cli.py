@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 from .frontier import FrontierAssistant
 from .observability import Tracer
 from .tools import default_registry
+from .tracing import configure_tracing, tracing_enabled
 
 BANNER = """\
 Ollive local assistant
@@ -62,6 +63,9 @@ def _show_world(world) -> None:
 
 def main() -> None:
     load_dotenv()
+    # Live tracing to Phoenix if PHOENIX_COLLECTOR_ENDPOINT is set; otherwise a
+    # no-op. Independent of --trace (which controls the durable JSONL record).
+    configure_tracing()
     parser = argparse.ArgumentParser(description="Ollive local assistant (tools + memory)")
     parser.add_argument("--model", choices=["oss", "frontier"], default="oss")
     parser.add_argument("--user", default=None, help="memory user id (default: $OLLIVE_USER_ID / OS user)")
@@ -97,7 +101,10 @@ def main() -> None:
         tools="on" if tools else "off", memory="on" if ltm else "off",
     ))
     if tracer is not None:
-        print(f"  traces:  {tracer.path}\n")
+        print(f"  traces:  {tracer.path}")
+    if tracing_enabled():
+        print("  phoenix: live tracing on (PHOENIX_COLLECTOR_ENDPOINT)")
+    print()
 
     while True:
         try:

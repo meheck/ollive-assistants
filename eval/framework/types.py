@@ -200,6 +200,7 @@ class RunResult:
     store_dump: list[str] = field(default_factory=list)   # long-term memory contents
     recalled: list[str] = field(default_factory=list)     # memories recalled last turn
     trace_ids: list[str] = field(default_factory=list)    # evidence: the turn traces
+    span_ids: list[str] = field(default_factory=list)     # OTel root-span ids (for Phoenix annotations)
     error: str | None = None
 
 

@@ -130,26 +130,33 @@ def run_scenario(host: ModelHost, scenario: Scenario, traces_dir: str) -> RunRes
     except Exception as exc:  # keep the harness alive; record the failure
         error = f"{type(exc).__name__}: {exc}"
 
+    trace_ids, span_ids = _read_trace_meta(tracer.path)
     return RunResult(
         scenario_id=scenario.id, dimension=scenario.dimension,
         template_id=scenario.template_id, model=host.model,
         transcript=transcript, reply=reply, world=world,
         store_dump=store_dump, recalled=recalled,
-        trace_ids=_read_trace_ids(tracer.path), error=error,
+        trace_ids=trace_ids, span_ids=span_ids, error=error,
     )
 
 
-def _read_trace_ids(path: str) -> list[str]:
+def _read_trace_meta(path: str) -> tuple[list[str], list[str]]:
+    """Read the (trace_id, span_id) of each turn back from the JSONL trace file.
+    `span_id` is None unless live tracing was on; only real ids are kept."""
     if not os.path.exists(path):
-        return []
-    ids = []
+        return [], []
+    trace_ids, span_ids = [], []
     with open(path, encoding="utf-8") as f:
         for line in f:
             try:
-                ids.append(json.loads(line)["trace_id"])
-            except (json.JSONDecodeError, KeyError):
-                pass
-    return ids
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if "trace_id" in rec:
+                trace_ids.append(rec["trace_id"])
+            if rec.get("span_id"):
+                span_ids.append(rec["span_id"])
+    return trace_ids, span_ids
 
 
 # ---------------------------------------------------------------------------

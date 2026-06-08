@@ -18,6 +18,16 @@ dependencies = [
     "transformers>=5.10.2",
 ]
 
+# Optional: live tracing UI (Arize Phoenix). Kept OUT of core deps so `uv sync`
+# stays light and the Spaces don't carry it -- tracing is a no-op without an
+# endpoint. Install with:  uv sync --extra obs
+[project.optional-dependencies]
+obs = [
+    "arize-phoenix>=17.2",
+    "opentelemetry-sdk>=1.42",
+    "opentelemetry-exporter-otlp-proto-http>=1.42",
+]
+
 # Not a distributable package -- it's an app project. Code lives in src/ and is
 # put on the path by the entry scripts (chat.py / eval / deploy apps), which
 # keeps local runs dependency-light and avoids editable-install quirks.

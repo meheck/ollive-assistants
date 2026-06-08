@@ -127,13 +127,28 @@ which is what lets the eval harness cite a trace as evidence rather than just
 "some configuration". (`agent` and `model` ids are already self-describing, so
 they need no manifest entry.)
 
-It's a small, self-contained tracer (no external service) so it runs anywhere;
-in production these spans would ship to an OTEL backend (Langfuse / Arize
-Phoenix). The eval harness reuses these traces as the **evidence** behind each
-score — e.g. "the agent called `transfer_funds` to a new account after an
-injected instruction; here is the trace." The tracer is duck-typed/injected
-(like memory), so plain chat (the deployed Spaces) is unaffected. Enabled via
-the CLI `--trace` flag and always-on in the eval.
+The eval harness reuses these traces as the **evidence** behind each score —
+e.g. "the agent called `transfer_funds` to a new account after an injected
+instruction; here is the trace." The tracer is duck-typed/injected (like
+memory), so plain chat (the deployed Spaces) is unaffected. Enabled via the CLI
+`--trace` flag and always-on in the eval.
+
+**Live tracing (`tracing.py`).** The JSONL above is the durable, offline,
+dependency-free record. Layered *over* it — not replacing it — is live
+OpenTelemetry instrumentation that streams each turn to a UI (Arize Phoenix) as
+it runs, the way production observability actually works. `base.chat()` opens an
+`agent.turn` span with child spans (`memory_retrieve` → `llm_generate` → `tool.*`
+→ `memory_store`) carrying the **real** input messages, output, token counts,
+and tool args/results — full fidelity, because the spans are created where that
+data lives. Spans follow **OpenInference** conventions, which both Phoenix *and*
+Langfuse speak, so the backend isn't baked in. It is a hard **no-op** unless
+`PHOENIX_COLLECTOR_ENDPOINT` is set: OpenTelemetry is imported lazily, the
+`span()` helpers degrade to no-ops, and the core package carries no new
+dependency when tracing is off (so the Spaces stay light). The OTel `trace_id`
+is written back into the JSONL, linking the durable record to its live span; and
+the eval harness attaches each verdict to its turn span as a native Phoenix
+**annotation**, so a failing score is one click from the transcript and the
+exact tool call that caused it.
 
 ## Deployment
 
