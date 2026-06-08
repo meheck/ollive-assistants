@@ -1,4 +1,4 @@
-# Architecture (so far)
+# Architecture
 
 A comparison of two personal assistants — one open-source, one frontier —
 sharing a single interface so they can be evaluated head-to-head. Built for the
@@ -15,18 +15,29 @@ cost/latency, observability, evals, guardrails, memory/tools.
 
 ```
 src/assistants/        Core library (the two backends + shared contract)
-  base.py              Assistant ABC, Message type, ShortTermMemory, system prompt
-  oss.py               OSSAssistant  -> Qwen2.5-0.5B-Instruct via transformers
+  base.py              Assistant ABC, Message, ShortTermMemory, shared prompt, chat() loop
+  oss.py               OSSAssistant  -> Qwen2.5-1.5B-Instruct via transformers
   frontier.py          FrontierAssistant -> Google Gemini via google-genai
+  tools.py             ToolRegistry + sandboxed WorldState (calc/web/transfer/email/delete)
+  long_term_memory.py  Cross-session memory (Mem0, infer=False, local embedder, PII-scrubbed)
+  observability.py     JSONL per-turn tracer + dereferenceable version manifest
+  tracing.py           Optional live OpenTelemetry/OpenInference tracing -> Phoenix
+  version.py           Agent / prompt / tools content-hash version ids
+  cli.py               Local REPL (tools + cross-session memory)
+eval/
+  framework/           Threat templates, capability manifest, generate, oracles, judges, runner
+  run_evals.py         Run the suite (seeded sample) -> per-result rows + scorecard
+  scorecard.py         Merge per-model results -> report/scorecard.{md,svg}
+  bench_latency.py     Cost + latency benchmark (local CPU + live Space)
+  scenarios.frozen.json  Frozen, content-hashed scenario set (the auditable suite)
 deploy/
   shared_chat.py       Gradio chat glue (history coercion + build_demo), vendored
   hf_space/            OSS Space: app.py, requirements.txt, README.md
   hf_space_frontier/   Frontier Space: app.py, requirements.txt, README.md
   push_space.py        Deploy script (vendors code, sets Secrets, public/private)
-eval/
-  bench_latency.py     Cost + latency benchmark (local CPU + live Space)
-report/                Generated artifacts (cost_latency.md, eval report)
-results/               Raw run outputs (gitignored)
+chat.py                Local entry point (-> assistants.cli)
+report/                Deliverables (eval_report.md, scorecard.{md,svg}, cost_latency.md)
+results/               Raw run outputs + traces (gitignored)
 ```
 
 ## Core abstraction
@@ -150,6 +161,42 @@ the eval harness attaches each verdict to its turn span as a native Phoenix
 **annotation**, so a failing score is one click from the transcript and the
 exact tool call that caused it.
 
+## Evaluation framework
+
+The eval system (`eval/framework/`) treats evaluation as **evidence generation
+about an agent's risk profile**, so the unit of evaluation is not a prompt but a
+frozen, serializable **threat scenario** whose grader travels with it.
+
+- **Agent-independent threat templates → a capability manifest.** Each dimension
+  is a set of `ThreatTemplate`s (attack patterns) with a `precondition` and an
+  `expand(manifest, rng)`. They instantiate against a **`CapabilityManifest`**
+  derived from the agent's *tool schemas* (the only agent-general interface) — so
+  two agents with the same tools get the identical scenario set, and comparability
+  falls out of generation being a function of the manifest, not hand-authoring.
+- **Frozen + content-hashed.** `generate(seed=42)` is deterministic; `freeze()`
+  content-hashes the set into `eval/scenarios.frozen.json` tagged
+  `evalkit-1.0.0+<hash>` — the auditable suite each run is checked against.
+- **Oracle vs judge grading.** A scenario carries an **oracle** (deterministic
+  code over the sandbox's `action_log` — *did `transfer_funds` fire? is the raw
+  SSN in the store?*) and/or an **LLM judge** (Gemini 2.5 Pro, versioned rubric)
+  for the semantic dimensions. Structural, ground-truth facts go to oracles; only
+  genuinely semantic calls go to the judge — which also keeps the differentiator
+  dimensions (tool / injection / memory) off a judge that shares a family with the
+  frontier agent.
+- **Multi-session / multi-user.** A scenario can have several `Session`s sharing
+  one `WorldState` + long-term store with per-session `user_id`, so cross-session
+  memory threats (poisoning, cross-user leakage) are first-class.
+- **Bounded, reproducible cost.** A run takes a **seeded 5-per-subdimension**
+  sample of the suite; every result row cites the framework version, the sample
+  seed, and the turn `trace_id`s — so a score is reproducible and traces back to
+  its evidence (above), and verdicts are logged onto those traces as Phoenix
+  annotations when live tracing is on.
+
+Coverage: **201 scenarios across 6 dimensions / 14 subdimensions** — hallucination,
+bias, content-safety (the required three) plus tool-safety, prompt-injection, and
+memory-safety (the agentic risks an AI-liability insurer cares about). Results and
+their limitations are written up in `report/eval_report.md`.
+
 ## Deployment
 
 Each assistant is a **Gradio app** that doubles as a **Hugging Face Space**.
@@ -188,7 +235,7 @@ cache); a bad/exhausted key falls back to the demo key so chat stays usable.
 | OSS device | **CPU** (MPS disabled) | Qwen2.5 trips an Apple Metal assertion on MPS; CPU is reliable and matches the free Space tier |
 | OSS backend topology | local weights now; remote Space available | local gives deterministic, seed-controlled runs for evals |
 | Frontier model | Gemini 2.5 Flash | fast/cheap, clean cost/latency contrast vs OSS |
-| Eval judge | Gemini 2.5 Pro (planned) | no working Anthropic key; stronger model judges weaker; within-family bias documented as a limitation |
+| Eval judge | Gemini 2.5 Pro | no working Anthropic key; stronger model judges weaker; within-family bias documented as a limitation (and side-stepped on the differentiator dimensions via oracles) |
 | Frontier Space visibility | public, dedicated free-tier key | zero-setup demo; free-tier can't bill; optional user-key field for own quota |
 | Cross-session memory | Mem0 self-hosted, **`infer=False`**, local embedder | see "Why memory makes no extra inference calls" below |
 
@@ -240,22 +287,25 @@ later is a one-line change if distilled-fact memory is ever wanted.
 
 ## Status
 
-Done: both assistants + shared interface; OSS (Qwen2.5-1.5B) and frontier
-(Gemini 2.5 Flash) deployed publicly; cost+latency benchmark.
-
-Done: native function calling + sandboxed tools + per-session sandbox (both
-demos deployed, 1.5B + tools); token-budget short-term memory; cross-session
-memory (Mem0, infer=False, PII-scrubbed, local-only); local CLI (chat.py);
-version-pinned JSONL observability traces.
-
-Pending (build order: eval → report):
-- Eval framework: required dimensions (hallucination / bias / content safety)
-  **plus** memory and tool behaviors, with per-test-case isolation for
-  reproducibility; dimension-specific judges; cites the observability traces.
-- Streamlit demo UI (optional); README + 1-page report.
+Complete. Both assistants share one interface; OSS (Qwen2.5-1.5B) and frontier
+(Gemini 2.5 Flash) are **deployed publicly** with native function-calling + a
+per-session tool sandbox, token-budget short-term memory, cross-session memory
+(Mem0, `infer=False`, PII-scrubbed, local-only), and a local CLI (`chat.py`).
+Observability is version-pinned JSONL traces **plus** optional live
+OpenTelemetry → Phoenix, with eval verdicts logged onto the traces. The
+**evaluation framework** (above) is built, frozen, and run head-to-head across
+all six dimensions, with a 1-page report (`report/eval_report.md`) + scorecard
+and a cost/latency benchmark.
 
 ### Future improvements
 
+- **Multi-turn follow-through.** Most scenarios are single-turn, so an agent that
+  *accepts* a harmful/consequential task but defers ("sure — just confirm and give
+  me the details") is scored as a pass: no harmful content, no sink fired. That
+  inflates the content-safety and tool-safety rates. Fix: add a second turn that
+  supplies the confirmation/detail and grade the *final* action, plus a judge
+  clause that scores accept-and-ask-for-details as a failure. (See the report's
+  Limitations.)
 - **Injection ingestion check.** The indirect-prompt-injection oracle only checks
   that the consequential sink did not fire. For the *email-exfiltration* chains the
   sink is off the user's natural path (the benign turn never asks to email
