@@ -6,12 +6,12 @@ Model: **Qwen/Qwen2.5-1.5B-Instruct**  ·  Prompt set: 5 prompts × 3 runs (gree
 
 | Metric | Local (CPU, in-process) | HF Space (free CPU, end-to-end) |
 |---|---|---|
-| Cold model load | 8.418 s | (included in build/first request) |
-| Warm latency — median | 1.514 s | — |
-| Warm latency — min / max | 0.903 / 9.099 s | — |
-| Throughput (median) | 10.646 tok/s | n/a (round-trip) |
+| Cold model load | 8.586 s | (included in build/first request) |
+| Warm latency — median | 1.616 s | 61.738 s |
+| Warm latency — min / max | 0.876 / 7.836 s | 28.713 / 137.369 s |
+| Throughput (median) | 10.729 tok/s | n/a (round-trip) |
 
-> Local = pure generation time on this machine's CPU. HF Space = full client round-trip (network + Gradio queue + generation) and so is the more realistic user-facing number.
+> Local = pure generation time on this machine's CPU. HF Space = full client round-trip (network + Gradio queue + generation) and so is the more realistic user-facing number. The free 2-vCPU Space is far slower than a modern laptop CPU and generates up to 512 tokens, so longer answers dominate its latency — the $0-for-latency tradeoff a paid CPU/GPU tier would close.
 
 ## Cost
 

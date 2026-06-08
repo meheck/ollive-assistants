@@ -126,7 +126,10 @@ def render_markdown(local: dict, space: dict | None) -> str:
         "",
         "> Local = pure generation time on this machine's CPU. HF Space = full "
         "client round-trip (network + Gradio queue + generation) and so is the "
-        "more realistic user-facing number.",
+        "more realistic user-facing number. The free 2-vCPU Space is far slower "
+        "than a modern laptop CPU and generates up to 512 tokens, so longer "
+        "answers dominate its latency — the $0-for-latency tradeoff a paid "
+        "CPU/GPU tier would close.",
         "",
         "## Cost",
         "",
