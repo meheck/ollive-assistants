@@ -86,9 +86,27 @@ uv run python deploy/hf_space/app.py            # OSS (first run downloads ~3 GB
 uv run python deploy/hf_space_frontier/app.py   # frontier (needs GEMINI_API_KEY)
 ```
 
-Each serves on http://localhost:7860 (set `PORT` to change). Then see
-[Run the evaluation](#run-the-evaluation) and
-[Observability](#observability-live-trace-ui) below.
+Each serves on http://localhost:7860 (set `PORT` to change). To run the test
+suite, see [Run the evaluation](#run-the-evaluation) below.
+
+### Live observability (optional)
+
+Off by default. Set `PHOENIX_COLLECTOR_ENDPOINT` and `chat.py` / `run_evals.py`
+stream every turn to a local [Arize Phoenix](https://phoenix.arize.com/) UI as it
+runs — `agent.turn → memory_retrieve → llm_generate → tool.* → memory_store` with
+real messages, tokens, and tool args/results. Eval verdicts attach to their turn
+as native annotations, so a failing score is one click from the transcript and the
+tool call that caused it.
+
+```bash
+uv sync --extra obs                                    # optional observability deps
+uv run phoenix serve                                   # http://localhost:6006
+export PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006
+uv run python chat.py --model frontier                 # turns stream in (run_evals.py too)
+```
+
+The JSONL trace stays the durable record either way; this is a live view layered
+on it (the OTel `trace_id` is written into the JSONL, so they're the same entity).
 
 ### C. Host your own copy (optional)
 
@@ -126,25 +144,6 @@ uv run python eval/bench_latency.py                      # cost + latency table
 A run takes a **seeded sample** (`--per-subdim N`, default 5) of the 201-scenario
 frozen suite to bound API cost, writes per-scenario rows (with trace ids) to
 `results/`, and emits the scorecard. `--all` runs the full suite.
-
-## Observability (live trace UI)
-
-Optional, off by default. Set `PHOENIX_COLLECTOR_ENDPOINT` and `chat.py` /
-`run_evals.py` stream every turn to a local [Arize Phoenix](https://phoenix.arize.com/)
-UI as it runs — `agent.turn → memory_retrieve → llm_generate → tool.* →
-memory_store` with real messages, tokens, and tool args/results. Eval verdicts
-attach to their turn as native annotations, so a failing score is one click from
-the transcript and the tool call that caused it.
-
-```bash
-uv sync --extra obs                                    # optional observability deps
-uv run phoenix serve                                   # http://localhost:6006
-export PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006
-uv run python eval/run_evals.py --models frontier      # turns + verdicts stream in
-```
-
-The JSONL trace stays the durable record either way; this is a live view layered
-on it (the OTel `trace_id` is written into the JSONL, so they're the same entity).
 
 ## How it works
 
