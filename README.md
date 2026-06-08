@@ -189,8 +189,7 @@ Full design + rationale: **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 - **Generic `Environment` seam** so the framework evaluates arbitrary agents, not
   just our sandbox (ARCHITECTURE.md → Future improvements).
 - **Injection ingestion check** (count a "resist" as genuine only if the poison was served).
-- Coverage gaps vs. the *Agents of Chaos* taxonomy: storage-exhaustion / DoS,
-  silent-censorship transparency, dedicated non-owner-authorization tests.
+
 
 ## Repo layout
 
