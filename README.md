@@ -38,20 +38,81 @@ not. A **guardrail gap, not a model-quality gap.** (Safety rates are also *optim
 see the single-turn soft-compliance limitation.) Full write-up:
 **[report/eval_report.md](report/eval_report.md)**.
 
-## Quickstart
+## Setup
 
-Needs **Python 3.12** + **[uv](https://docs.astral.sh/uv/)**. (Full guide: [SETUP.md](SETUP.md).)
+Three ways to use this, in increasing order of effort:
+
+| Mode | What you do | Gemini key? |
+|---|---|---|
+| **A. Just try it** | click the live demos above | no |
+| **B. Run locally** | `uv sync` + a key in `.env` | yes (any key works) |
+| **C. Host your own** | deploy to HF Spaces | your own |
+
+### A. Just try it (no setup)
+
+Open the public Spaces linked above — the frontier one ships a free-tier Gemini
+key, so it just works (with an optional field to use your own quota). Zero install.
+
+### B. Run locally
+
+**Prerequisites:** **Python 3.12** + **[uv](https://docs.astral.sh/uv/)**. A
+**Google Gemini API key** is needed only for the *frontier* assistant and the
+eval judge (free at https://aistudio.google.com/apikey); the OSS assistant needs
+no key.
 
 ```bash
-uv sync
-cp .env.example .env          # add a Gemini key (free: https://aistudio.google.com/apikey)
+uv sync                       # creates .venv and installs the locked deps
+cp .env.example .env          # then set GEMINI_API_KEY=... (any Gemini key)
+```
 
-# local chat — tools + cross-session memory wired together
+**Local assistant CLI** — the fullest experience, tools + persistent
+cross-session memory wired together:
+
+```bash
 uv run python chat.py                    # OSS (Qwen2.5-1.5B on CPU; no key needed)
 uv run python chat.py --model frontier   # Gemini 2.5 Flash (needs GEMINI_API_KEY)
 ```
 
-Or just click the live demos above — zero setup (the frontier Space ships a free-tier key).
+Options: `--user <id>` (memory scope), `--memory-dir <path>`, `--no-tools`,
+`--no-memory`, `--trace` (write a JSON trace per turn to `results/traces/`).
+In-chat: `/world`, `/memories`, `/reset`, `/help`, `/exit`. Re-run with the same
+`--user` and it remembers earlier sessions.
+
+**Chat UIs** — the same Gradio apps as the deployed Spaces (tools + per-session
+sandbox; no long-term memory, which is CLI-only):
+
+```bash
+uv run python deploy/hf_space/app.py            # OSS (first run downloads ~3 GB)
+uv run python deploy/hf_space_frontier/app.py   # frontier (needs GEMINI_API_KEY)
+```
+
+Each serves on http://localhost:7860 (set `PORT` to change). Then see
+[Run the evaluation](#run-the-evaluation) and
+[Observability](#observability-live-trace-ui) below.
+
+### C. Host your own copy (optional)
+
+Publishes your own Spaces; needs a HF account + a **write** `HF_TOKEN` in `.env`.
+
+```bash
+uv run python deploy/push_space.py --space-id <user>/ollive-oss-assistant
+uv run python deploy/push_space.py \
+  --space-id <user>/ollive-frontier-assistant \
+  --source hf_space_frontier --vendor frontier.py --secret GEMINI_API_KEY
+```
+
+`--secret GEMINI_API_KEY` stores the key from your environment as the Space's
+Secret (what visitors use by default; prefix with `GEMINI_API_KEY='<demo-key>'`
+to publish a demo key instead). `--private` makes a Space owner-only. The script
+vendors the shared code, so Spaces never drift from the repo.
+
+### Troubleshooting
+
+- **`GEMINI_API_KEY` not set** — the frontier app raises on startup; check `.env`.
+- **Slow first OSS response** — weights load lazily on the first message (~8 s
+  locally; longer on a cold Space).
+- **MPS / Metal error on Apple Silicon** — the OSS model runs on CPU by design;
+  override with `OSS_DEVICE=mps` only if your setup supports it.
 
 ## Run the evaluation
 
